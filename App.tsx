@@ -69,6 +69,15 @@ const App: React.FC = () => {
   const [isLoadingExamination, setIsLoadingExamination] = useState(false);
   const [isJournalOpenOnMobile, setIsJournalOpenOnMobile] = useState(false);
   const [isInventoryOpenOnMobile, setIsInventoryOpenOnMobile] = useState(false);
+  const [imageGenerationFeatureEnabled, setImageGenerationFeatureEnabled] = useState(true);
+
+
+  useEffect(() => {
+    const imageEnvVar = process.env.IMAGE_GENERATION_ENABLED?.toLowerCase();
+    if (imageEnvVar === 'false' || imageEnvVar === 'disabled' || imageEnvVar === '0') {
+      setImageGenerationFeatureEnabled(false);
+    }
+  }, []);
 
 
   const addJournalEntry = useCallback((type: JournalEntry['type'], content: string) => {
@@ -239,19 +248,17 @@ const App: React.FC = () => {
 
     setGameState(prev => ({
       ...prev,
-      isLoadingStory: false, // Story is now loaded
+      isLoadingStory: false,
       currentSegment: segmentData,
       inventory: newInventory,
       isGameEnded: segmentData.isFinalScene || false,
       lastRetryInfo: null, 
       error: null,
-      // isLoadingImage is managed below or remains true if imagePrompt exists
+      isLoadingImage: imageGenerationFeatureEnabled && !!segmentData.imagePrompt,
     }));
 
-    if (segmentData.imagePrompt) {
+    if (imageGenerationFeatureEnabled && segmentData.imagePrompt) {
       setCurrentLoadingText(getRandomLoadingText(imageLoadingTexts));
-      // Ensure isLoadingImage is true if it wasn't already set by handleChoiceSelected
-      setGameState(prev => ({ ...prev, isLoadingImage: true })); 
       try {
         const imageUrl = await generateImage(segmentData.imagePrompt);
         setGameState(prev => ({
@@ -269,23 +276,28 @@ const App: React.FC = () => {
         }));
       }
     } else {
-      setGameState(prev => ({ ...prev, isLoadingImage: false, currentSegment: prev.currentSegment ? { ...prev.currentSegment, imageUrl: undefined } : null }));
+      setGameState(prev => ({ 
+        ...prev, 
+        isLoadingImage: false, 
+        currentSegment: prev.currentSegment ? { ...prev.currentSegment, imageUrl: undefined } : null 
+      }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addJournalEntry, gameState.inventory]);
+  }, [addJournalEntry, gameState.inventory, imageGenerationFeatureEnabled]);
 
 
   const loadStoryScene = useCallback(async (prompt: string, isRetryAttempt: boolean = false) => {
-    // isLoadingStory, isLoadingImage, and currentLoadingText are now set earlier in handleChoiceSelected
-    // or at the start of initial scene load.
-    // Only set currentLoadingText here if it's a retry and specific text is needed.
-    if (!isRetryAttempt && !gameState.isLoadingStory) { // If not already set by handleChoiceSelected (e.g. initial load)
+    if (!isRetryAttempt && !gameState.isLoadingStory) { 
        setCurrentLoadingText(getRandomLoadingText(storyLoadingTexts));
-       setGameState(prev => ({ ...prev, isLoadingStory: true, isLoadingImage: true, error: null }));
+       setGameState(prev => ({ 
+        ...prev, 
+        isLoadingStory: true, 
+        isLoadingImage: imageGenerationFeatureEnabled, 
+        error: null 
+      }));
     } else if (isRetryAttempt && gameState.lastRetryInfo && gameState.lastRetryInfo.type === 'resend_original' && gameState.lastRetryInfo.originalPrompt !== "fetch_outline_action" && gameState.lastRetryInfo.originalPrompt !== "fetch_world_action" && gameState.lastRetryInfo.originalPrompt !== "examine_action") {
         setCurrentLoadingText(getRandomLoadingText(storyLoadingTexts));
     }
-
 
     try {
       const segmentData = await fetchStorySegment(prompt); 
@@ -311,14 +323,14 @@ const App: React.FC = () => {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processSuccessfulSegment, gameState.lastRetryInfo?.type, gameState.lastRetryInfo?.originalPrompt, gameState.isLoadingStory]); 
+  }, [processSuccessfulSegment, gameState.lastRetryInfo?.type, gameState.lastRetryInfo?.originalPrompt, gameState.isLoadingStory, imageGenerationFeatureEnabled]); 
 
   // 3. Effect for fetching FIRST story segment (depends on outline, world, genre, persona)
   useEffect(() => {
     if (
       gameState.adventureOutline &&
       gameState.worldDetails && 
-      gameState.selectedGenre && // Ensure genre is selected
+      gameState.selectedGenre && 
       gameState.selectedPersona &&
       !gameState.currentSegment &&
       !gameState.isLoadingOutline &&
@@ -327,8 +339,8 @@ const App: React.FC = () => {
       !gameState.error &&
       !showResumeModal &&
       !gameState.isGameEnded &&
-      !isSelectingGenre && // Ensure not in genre selection
-      !isSelectingPersona // Ensure not in persona selection
+      !isSelectingGenre && 
+      !isSelectingPersona 
     ) {
       const { adventureOutline, worldDetails, currentStageIndex, selectedGenre, selectedPersona, inventory } = gameState;
       const currentStage = adventureOutline.stages[currentStageIndex];
@@ -410,7 +422,7 @@ Format the response STRICTLY as a JSON object. Keys: sceneDescription, choices, 
     setGameState(prev => ({
       ...prev,
       isLoadingStory: true,
-      isLoadingImage: true, // Assume image will load for next scene
+      isLoadingImage: imageGenerationFeatureEnabled, // Assume image will load if feature enabled
       error: null,
     }));
 
@@ -423,12 +435,10 @@ Format the response STRICTLY as a JSON object. Keys: sceneDescription, choices, 
       }
     }
     const finalNextStageIndex = nextStageIndex;
-    // Update currentStageIndex earlier if it affects prompt generation logic that relies on the new index immediately
     setGameState(prev => ({ ...prev, currentStageIndex: finalNextStageIndex }));
 
 
     const { adventureOutline, worldDetails, selectedGenre, selectedPersona, inventory } = gameState;
-    // Use finalNextStageIndex for current stage prompt, and the gameState's currentStageIndex (which might be old one) for previous stage context
     const currentStageForPrompt = adventureOutline.stages[finalNextStageIndex];
     const previousStageForPromptContext = adventureOutline.stages[gameState.currentStageIndex === finalNextStageIndex && finalNextStageIndex > 0 ? finalNextStageIndex -1 : gameState.currentStageIndex];
 
@@ -449,7 +459,6 @@ Brief History Hook: ${worldDetails.briefHistoryHook}
 Cultural Norms/Taboos: ${worldDetails.culturalNormsOrTaboos.join('; ') || 'N/A'}
 This world information MUST deeply influence the scene description, the types of challenges, the choices available, and any items found.
 `;
-    // Ensure currentSegment is non-null for scene description access
     const prevSceneDesc = gameState.currentSegment?.sceneDescription || "Previously, the adventure continued...";
 
     const subsequentPrompt = `You are a master storyteller for a dynamic text-based RPG adventure game.
@@ -503,7 +512,7 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
         gameState.worldDetails, 
         currentStage.title,
         currentStage.objective,
-        gameState.selectedPersona, // Pass base persona, service will handle mapping if needed for its prompt
+        gameState.selectedPersona, 
         gameState.inventory
       );
       setExaminationText(result.examinationText);
@@ -524,9 +533,12 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
 
   const handleResumeGame = () => {
     if (initialLoadedState) {
+      const shouldLoadImageOnResume = imageGenerationFeatureEnabled && 
+                                     !initialLoadedState.currentSegment?.imageUrl && 
+                                     !!initialLoadedState.currentSegment?.imagePrompt;
       setGameState(prev => ({
         ...prev,
-        selectedGenre: initialLoadedState.selectedGenre, // Load selectedGenre
+        selectedGenre: initialLoadedState.selectedGenre, 
         selectedPersona: initialLoadedState.selectedPersona,
         adventureOutline: initialLoadedState.adventureOutline,
         worldDetails: initialLoadedState.worldDetails, 
@@ -538,17 +550,17 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
         isLoadingOutline: false,
         isLoadingWorld: false,
         isLoadingStory: false,
-        isLoadingImage: !initialLoadedState.currentSegment?.imageUrl && !!initialLoadedState.currentSegment?.imagePrompt,
+        isLoadingImage: shouldLoadImageOnResume,
         error: null,
         lastRetryInfo: null,
       }));
       addJournalEntry('system', 'Game resumed from saved state.');
-      setIsSelectingGenre(false); // Not selecting genre
-      setIsSelectingPersona(false); // Not selecting persona
+      setIsSelectingGenre(false); 
+      setIsSelectingPersona(false); 
 
-      if (initialLoadedState.currentSegment?.imagePrompt && !initialLoadedState.currentSegment?.imageUrl) {
+      if (shouldLoadImageOnResume) {
         setCurrentLoadingText(getRandomLoadingText(imageLoadingTexts));
-        generateImage(initialLoadedState.currentSegment.imagePrompt)
+        generateImage(initialLoadedState.currentSegment!.imagePrompt!) // Assert non-null due to shouldLoadImageOnResume check
           .then(imageUrl => {
             setGameState(prev => ({
               ...prev,
@@ -560,6 +572,9 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
             console.error("Failed to re-generate image on resume:", err);
             setGameState(prev => ({ ...prev, isLoadingImage: false, error: "Failed to reload scene image." }));
           });
+      } else {
+        // If not loading image (e.g. feature disabled or image already exists), ensure isLoadingImage is false.
+         setGameState(prev => ({ ...prev, isLoadingImage: false }));
       }
     }
     setShowResumeModal(false);
@@ -572,7 +587,7 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
     setInitialLoadedState(null);
     
     setGameState({
-      selectedGenre: null, // Reset genre
+      selectedGenre: null, 
       selectedPersona: null,
       adventureOutline: null,
       worldDetails: null, 
@@ -589,7 +604,7 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
       inventory: [],
       lastRetryInfo: null,
     });
-    setIsSelectingGenre(true); // Start with genre selection
+    setIsSelectingGenre(true); 
     setIsSelectingPersona(false); 
     if (!isFromErrorModal) addJournalEntry('system', 'New game started. Choose a genre.');
     setIsJournalOpenOnMobile(false); 
@@ -612,7 +627,11 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
 
     if (type === 'fix_json' && faultyJsonText) {
       setCurrentLoadingText(getRandomLoadingText(fixJsonLoadingTexts));
-      setGameState(prev => ({ ...prev, isLoadingStory: true, isLoadingImage: true }));
+      setGameState(prev => ({ 
+        ...prev, 
+        isLoadingStory: true, 
+        isLoadingImage: imageGenerationFeatureEnabled 
+      }));
       try {
         const fixedSegmentData = await attemptToFixJson(faultyJsonText, originalPrompt);
         await processSuccessfulSegment(fixedSegmentData); 
@@ -646,12 +665,14 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
         }));
       } else if (originalPrompt === "examine_action") {
         setCurrentLoadingText(getRandomLoadingText(examinationLoadingTexts));
-        await handleExamineSelected(); // No need to pass true for retry, handleExamineSelected handles its own loading text
+        await handleExamineSelected(); 
       } else { 
-        // For story scene retries, currentLoadingText and isLoadingStory are set by loadStoryScene itself.
-        // However, ensure it's set if loadStoryScene relies on it being set before call for retry.
         setCurrentLoadingText(getRandomLoadingText(storyLoadingTexts));
-        setGameState(prev => ({ ...prev, isLoadingStory: true, isLoadingImage: true })); // Ensure loading states are active
+        setGameState(prev => ({ 
+            ...prev, 
+            isLoadingStory: true, 
+            isLoadingImage: imageGenerationFeatureEnabled 
+        })); 
         await loadStoryScene(originalPrompt, true);
       }
     }
@@ -700,7 +721,7 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
           <p className="text-gray-300 whitespace-pre-line leading-relaxed mb-4 text-lg">
             {gameState.currentSegment.sceneDescription}
           </p>
-          {gameState.currentSegment.imageUrl && (
+          {imageGenerationFeatureEnabled && gameState.currentSegment.imageUrl && (
             <img src={gameState.currentSegment.imageUrl} alt="Final scene" className="rounded-md shadow-lg mx-auto my-4 max-w-full h-auto" style={{maxHeight: '400px'}} />
           )}
           <p className="text-xl text-gray-400">You have completed the adventure: <span className="font-semibold text-purple-300">{gameState.adventureOutline?.overallGoal}</span></p>
@@ -725,12 +746,12 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
     );
   }
 
-  const isLoading = gameState.isLoadingOutline || gameState.isLoadingWorld || gameState.isLoadingStory || gameState.isLoadingImage || isLoadingExamination;
+  const isLoading = gameState.isLoadingOutline || gameState.isLoadingWorld || gameState.isLoadingStory || (gameState.isLoadingImage && imageGenerationFeatureEnabled) || isLoadingExamination;
   let dynamicLoadingText = currentLoadingText; 
   if (gameState.isLoadingOutline && (!dynamicLoadingText || !outlineLoadingTexts.includes(dynamicLoadingText))) dynamicLoadingText = getRandomLoadingText(outlineLoadingTexts);
   else if (gameState.isLoadingWorld && (!dynamicLoadingText || !worldLoadingTexts.includes(dynamicLoadingText))) dynamicLoadingText = getRandomLoadingText(worldLoadingTexts);
   else if (gameState.isLoadingStory && (!dynamicLoadingText || !storyLoadingTexts.includes(dynamicLoadingText))) dynamicLoadingText = getRandomLoadingText(storyLoadingTexts);
-  else if (gameState.isLoadingImage && (!dynamicLoadingText || !imageLoadingTexts.includes(dynamicLoadingText))) dynamicLoadingText = getRandomLoadingText(imageLoadingTexts);
+  else if (gameState.isLoadingImage && imageGenerationFeatureEnabled && (!dynamicLoadingText || !imageLoadingTexts.includes(dynamicLoadingText))) dynamicLoadingText = getRandomLoadingText(imageLoadingTexts);
   else if (isLoadingExamination && (!dynamicLoadingText || !examinationLoadingTexts.includes(dynamicLoadingText))) dynamicLoadingText = getRandomLoadingText(examinationLoadingTexts);
 
 
@@ -746,33 +767,29 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
 
   return (
     <div className="min-h-screen flex flex-col p-4 md:p-8 bg-gray-900 text-gray-100 items-center">
-      <header className="w-full max-w-5xl mb-8 text-center"> {/* Increased bottom margin */}
-        {/* 1. Adventure Title */}
-        <h1 className="font-press-start text-3xl text-purple-400 tracking-tight mb-3"> {/* Adjusted margin */}
+      <header className="w-full max-w-5xl mb-8 text-center"> 
+        <h1 className="font-press-start text-3xl text-purple-400 tracking-tight mb-3"> 
           {gameState.adventureOutline ? gameState.adventureOutline.title : "Forge your Journey"}
         </h1>
 
-        {/* 2. Overall Goal */}
         {gameState.adventureOutline && (
-          <p className="text-2xl font-semibold text-purple-300 mt-1 mb-4"> {/* Adjusted size, weight, color, margins */}
+          <p className="text-2xl font-semibold text-purple-300 mt-1 mb-4"> 
             Goal: {gameState.adventureOutline.overallGoal}
           </p>
         )}
         
-        {/* 3 & 4. Current Stage & Objective */}
         {gameState.adventureOutline && gameState.currentSegment && !gameState.isGameEnded && (
-          <div className="mt-1 mb-4"> {/* Container for stage info, adjusted margins */}
-            <p className="text-xl font-semibold text-gray-200"> {/* Adjusted size, weight, color */}
+          <div className="mt-1 mb-4"> 
+            <p className="text-xl font-semibold text-gray-200"> 
               Stage {gameState.currentStageIndex + 1} / {gameState.adventureOutline.stages.length}: {gameState.adventureOutline.stages[gameState.currentStageIndex].title}
             </p>
-            <p className="text-xl font-medium text-gray-300 mt-0.5"> {/* Adjusted size, weight, color */}
+            <p className="text-xl font-medium text-gray-300 mt-0.5"> 
                Objective: {gameState.adventureOutline.stages[gameState.currentStageIndex].objective}
             </p>
           </div>
         )}
 
-        {/* 6. Less important info: Genre, World, Persona */}
-         <div className="mt-1 text-sm text-gray-500 space-y-0.5"> {/* Container for less important info, increased from text-xs */}
+         <div className="mt-1 text-sm text-gray-500 space-y-0.5"> 
             {gameState.selectedGenre && <p>Genre: {gameState.selectedGenre}</p>}
             {gameState.worldDetails && <p>World: {gameState.worldDetails.worldName} <span className="text-gray-600">({gameState.worldDetails.genreClarification})</span></p>}
             {displayedPersonaTitle && <p>As: {displayedPersonaTitle}</p>}
@@ -783,7 +800,7 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
         <div className="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="error-modal-title">
           <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl text-center max-w-md w-full border border-red-700">
             <h2 id="error-modal-title" className="font-press-start text-xl sm:text-2xl mb-4 text-red-400">An Error Occurred</h2>
-            <p className="text-gray-300 mb-6 text-base sm:text-lg whitespace-pre-wrap"> {/* Increased from text-sm sm:text-base */}
+            <p className="text-gray-300 mb-6 text-base sm:text-lg whitespace-pre-wrap"> 
               {gameState.error}
             </p>
             <div className="flex flex-col gap-3">
@@ -819,26 +836,24 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
       
       {gameState.currentSegment && !gameState.isGameEnded && (
         <div className="w-full max-w-5xl flex flex-col lg:flex-row lg:items-start gap-6">
-          {/* Main content area: Image and Scene Description */}
           <div className="lg:w-2/3 flex-shrink-0 flex flex-col gap-6">
             <StoryDisplay
               imageUrl={gameState.currentSegment.imageUrl}
               isLoadingImage={gameState.isLoadingImage && !gameState.currentSegment.imageUrl}
               isLoadingStory={gameState.isLoadingStory && !gameState.currentSegment.sceneDescription}
+              imageGenerationFeatureEnabled={imageGenerationFeatureEnabled}
             />
             <div className="bg-gray-800 p-4 sm:p-6 rounded-lg shadow-xl">
                 <h2 className="font-press-start text-xl sm:text-2xl mb-3 sm:mb-4 text-purple-300 border-b border-gray-700 pb-2">Current Scene</h2>
-                <p className="text-gray-300 whitespace-pre-line leading-relaxed text-base sm:text-lg"> {/* Increased from text-sm sm:text-base */}
+                <p className="text-gray-300 whitespace-pre-line leading-relaxed text-base sm:text-lg"> 
                     {gameState.currentSegment.sceneDescription}
                 </p>
             </div>
 
-            {/* Choices for mobile, shown below scene */}
             <div className="lg:hidden">
               <ChoicePanel {...choicePanelProps} />
             </div>
             
-            {/* Journal and Inventory toggles for mobile */}
             <div className="lg:hidden space-y-2 mt-4">
                 {gameState.journal.length > 0 && (
                     <div>
@@ -874,12 +889,11 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
                         )}
                     </div>
                 )}
-                 {gameState.inventory.length === 0 && gameState.journal.length > 0 && ( // Show if inventory is empty but journal is not (to avoid double empty states if both are empty and log is also hidden)
+                 {gameState.inventory.length === 0 && gameState.journal.length > 0 && ( 
                      <div className="p-3 bg-gray-700 text-teal-400 text-center font-semibold rounded-lg shadow-md text-base">
                         Inventory Empty
                     </div>
                 )}
-                {/* If both are empty and log is also empty/not shown, this will show for inventory */}
                  {gameState.inventory.length === 0 && gameState.journal.length === 0 && !isJournalOpenOnMobile && (
                      <div className="p-3 bg-gray-700 text-teal-400 text-center font-semibold rounded-lg shadow-md text-base">
                         Inventory Empty
@@ -888,21 +902,20 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
             </div>
           </div>
 
-          {/* Sidebar for choices, inventory, journal on larger screens */}
           <aside className="hidden lg:block lg:w-1/3 space-y-6 flex-shrink-0 sticky top-8 self-start max-h-[calc(100vh-4rem)] overflow-y-auto custom-scrollbar pr-2">
             <ChoicePanel {...choicePanelProps} />
             {gameState.inventory.length > 0 && <InventoryDisplay inventory={gameState.inventory} />}
             {gameState.inventory.length === 0 && (
                  <div className="bg-gray-800 p-4 rounded-lg shadow-xl">
                     <h3 className="font-press-start text-lg text-teal-300 border-b border-gray-700 pb-2 mb-3">Inventory</h3>
-                    <p className="text-gray-500 text-base">Your satchel is empty.</p> {/* Increased from text-sm */}
+                    <p className="text-gray-500 text-base">Your satchel is empty.</p> 
                 </div>
             )}
             {gameState.journal.length > 0 && <JournalLog journal={gameState.journal} />}
              {gameState.journal.length === 0 && (
                  <div className="bg-gray-800 p-4 rounded-lg shadow-xl">
                     <h3 className="font-press-start text-lg text-purple-300 border-b border-gray-700 pb-2 mb-3">Adventure Log</h3>
-                    <p className="text-gray-500 text-base">Your adventure is yet to be written.</p> {/* Increased from text-sm */}
+                    <p className="text-gray-500 text-base">Your adventure is yet to be written.</p> 
                 </div>
             )}
           </aside>
@@ -913,7 +926,7 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
         <ExaminationModal text={examinationText} onClose={() => setShowExaminationModal(false)} />
       )}
       
-      <footer className="w-full max-w-5xl mt-12 text-center text-sm text-gray-500"> {/* Increased from text-xs */}
+      <footer className="w-full max-w-5xl mt-12 text-center text-sm text-gray-500"> 
         <p>&copy; {new Date().getFullYear()} Forge your Journey. Content generation by Google Gemini.</p>
       </footer>
     </div>

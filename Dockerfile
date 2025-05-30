@@ -33,11 +33,14 @@ RUN --mount=type=bind,source=package.json,target=package.json \
 # Create a stage for building the application.
 FROM deps as build
 
-# Define a build argument for the Gemini API Key
+# Define a build arguments for the Gemini API Key
+# and image generation configuration
 # This ARG is scoped to the 'build' stage.
 ARG GEMINI_API_KEY
+ARG IMAGE_GENERATION_ENABLED
 
 ENV GEMINI_API_KEY=$GEMINI_API_KEY
+ENV IMAGE_GENERATION_ENABLED=$IMAGE_GENERATION_ENABLED
 
 # Download additional development dependencies before building, as some projects require
 # "devDependencies" to be installed to build. If you don't need this, remove this step.
