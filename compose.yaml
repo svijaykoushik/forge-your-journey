@@ -11,9 +11,8 @@ services:
   forge-your-journey:
     build:
       context: .
-    environment:
-      NODE_ENV: production
-      GEMINI_API_KEY: REPLACE_WITH_YOUR_API_KEY
+      args:
+        GEMINI_API_KEY: PLACEHOLDER_API_KEY
     ports:
       - 80:80
 

@@ -33,6 +33,12 @@ RUN --mount=type=bind,source=package.json,target=package.json \
 # Create a stage for building the application.
 FROM deps as build
 
+# Define a build argument for the Gemini API Key
+# This ARG is scoped to the 'build' stage.
+ARG GEMINI_API_KEY
+
+ENV GEMINI_API_KEY=$GEMINI_API_KEY
+
 # Download additional development dependencies before building, as some projects require
 # "devDependencies" to be installed to build. If you don't need this, remove this step.
 RUN --mount=type=bind,source=package.json,target=package.json \
@@ -57,10 +63,9 @@ RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/conf.d/forge-your-journey.conf
 
 # Copy the built React application from the build stage into the Nginx web root.
-# The `root` in your nginx.conf is `/srv/forge-your-journey`, so we will copy to that path.
+# The `root` in your nginx.conf is `/srv/dist`, so we will copy to that path.
 # Remember that your React app's build output is in `dist`.
-COPY --from=build /usr/src/app/dist /srv/forge-your-journey
-
+COPY --from=build /usr/src/app/dist/forge-your-journey /srv/forge-your-journey
 # Expose the port that Nginx listens on.
 EXPOSE 80
 
