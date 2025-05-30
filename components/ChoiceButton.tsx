@@ -34,8 +34,8 @@ const ChoiceButton: React.FC<ChoiceButtonProps> = ({ choice, onSelect, disabled,
       className={`${baseClasses} ${isExamineButton ? examineClasses : primaryClasses}`}
       aria-label={choice.text}
     >
-      <span className="font-medium">{choice.text}</span>
-      {isExamineButton && <span className="text-xs block opacity-80">(Observe more closely)</span>}
+      <span className="font-medium font-['Alegreya_Sans']">{choice.text}</span>
+      {isExamineButton && <span className="text-xs block opacity-80 font-['Alegreya_Sans']">(Observe more closely)</span>}
     </button>
   );
 };

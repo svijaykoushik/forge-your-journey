@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 import { JournalEntry } from '../types';
 
@@ -74,7 +73,7 @@ const JournalLog: React.FC<JournalLogProps> = ({ journal, className }) => {
 
   return (
     <div className={className || defaultClasses}>
-      <h3 className="font-press-start text-lg mb-3 text-purple-300 border-b border-gray-700 pb-2 sticky top-0 bg-gray-800 z-10">
+      <h3 className="font-['Alegreya_Sans'] text-xl font-bold mb-3 text-purple-300 border-b border-gray-700 pb-2 sticky top-0 bg-gray-800 z-10">
         Adventure Log
       </h3>
       {journal.map((entry, index) => (

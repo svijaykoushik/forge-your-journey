@@ -1,9 +1,8 @@
 {
   "name": "forge-your-journey",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "homepage": "https://svijaykoushik.github.io/forge-your-journey",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,9 +11,9 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
-    "@google/genai": "^1.0.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "@google/genai": "^1.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

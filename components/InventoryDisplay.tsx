@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { InventoryItem } from '../types';
 
@@ -21,7 +20,7 @@ const InventoryDisplay: React.FC<InventoryDisplayProps> = ({ inventory, classNam
 
   return (
     <div className={className || defaultClasses}>
-      <h3 className="font-press-start text-lg mb-3 text-teal-300 border-b border-gray-700 pb-2 sticky top-0 bg-gray-800 z-10">
+      <h3 className="font-['Alegreya_Sans'] text-xl font-bold mb-3 text-teal-300 border-b border-gray-700 pb-2 sticky top-0 bg-gray-800 z-10">
         Inventory
       </h3>
       <ul className="space-y-2">

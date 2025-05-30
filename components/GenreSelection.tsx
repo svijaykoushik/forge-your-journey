@@ -20,7 +20,7 @@ const GenreSelection: React.FC<GenreSelectionProps> = ({ onGenreSelected }) => {
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gray-900 text-gray-100">
       <div className="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-2xl text-center border border-gray-700">
         <h1 className="font-press-start text-2xl sm:text-3xl mb-3 text-purple-300">Choose Your Adventure's Genre</h1>
-        <p className="text-gray-400 mb-8 text-base sm:text-lg">This will set the tone and theme of your story.</p> {/* Increased font size */}
+        <p className="text-gray-400 mb-8 text-base sm:text-lg font-['Alegreya_Sans']">This will set the tone and theme of your story.</p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {GENRE_OPTIONS.map((genre) => (
             <button
@@ -29,15 +29,14 @@ const GenreSelection: React.FC<GenreSelectionProps> = ({ onGenreSelected }) => {
               className="p-6 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-md transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-opacity-75 transform hover:scale-105 text-left h-full flex flex-col"
               aria-label={`Select genre: ${genre}`}
             >
-              {/* Ensure Alegreya Sans is used here with appropriate weight */}
-              <h2 className="text-xl font-semibold mb-1" style={{ fontFamily: "'Alegreya Sans', sans-serif" }}>{genre}</h2> 
-              <p className="text-base text-indigo-100 opacity-90 flex-grow">{genreDescriptions[genre]}</p> {/* Increased from text-sm */}
+              <h2 className="text-xl font-semibold mb-1 font-press-start">{genre}</h2>
+              <p className="text-base text-indigo-100 opacity-90 flex-grow font-['Alegreya_Sans']">{genreDescriptions[genre]}</p>
             </button>
           ))}
         </div>
       </div>
-      <footer className="mt-8 text-center text-sm text-gray-500"> {/* Increased from text-xs */}
-        <p>&copy; {new Date().getFullYear()} Gemini Adventure RPG. Adventure awaits!</p>
+      <footer className="mt-8 text-center text-sm text-gray-500">
+        <p>&copy; {new Date().getFullYear()} Forge your Journey. Adventure awaits!</p>
       </footer>
     </div>
   );

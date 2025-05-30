@@ -3,7 +3,6 @@ import React from 'react';
 import LoadingSpinner from './LoadingSpinner';
 
 interface StoryDisplayProps {
-  sceneDescription: string; // Even if story is loading, we might have old description
   imageUrl?: string;
   isLoadingImage: boolean;
   isLoadingStory: boolean;

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { GameState, Choice, StorySegment, AdventureOutline, SavableGameState, Persona, PERSONA_OPTIONS, JournalEntry, RetryInfo, JsonParseError, WorldDetails, GameGenre, GENRE_OPTIONS, genrePersonaDetails } from './types';
+import { GameState, Choice, StorySegment, AdventureOutline, SavableGameState, Persona, JournalEntry, RetryInfo, JsonParseError, WorldDetails, GameGenre, genrePersonaDetails } from './types';
 import { fetchAdventureOutline, fetchWorldDetails, fetchStorySegment, generateImage, fetchSceneExamination, attemptToFixJson } from './services/geminiService';
 import StoryDisplay from './components/StoryDisplay';
 import LoadingSpinner from './components/LoadingSpinner';
@@ -12,7 +12,7 @@ import ExaminationModal from './components/ExaminationModal';
 import ChoicePanel from './components/ChoicePanel';
 import InventoryDisplay from './components/InventoryDisplay';
 
-const LOCAL_STORAGE_KEY = 'geminiAdventureRPG_v5'; // Incremented version for new state structure (genre)
+const LOCAL_STORAGE_KEY = 'forgeYourJourney_v1'; // Updated to new app name and reset version
 
 const outlineLoadingTexts = [
   "Forging a new world's skeleton...", "Consulting ancient maps for an outline...", "Seeking cosmic inspiration for the adventure's path...",
@@ -224,7 +224,7 @@ const App: React.FC = () => {
   }, [gameState.isLoadingWorld, gameState.adventureOutline, gameState.selectedGenre, gameState.selectedPersona, gameState.apiKeyMissing, addJournalEntry]);
 
 
-  const processSuccessfulSegment = useCallback(async (segmentData: StorySegment, promptForJournal?: string) => {
+  const processSuccessfulSegment = useCallback(async (segmentData: StorySegment) => {
     addJournalEntry('scene', segmentData.sceneDescription);
     
     let newInventory = [...gameState.inventory];
@@ -289,7 +289,7 @@ const App: React.FC = () => {
 
     try {
       const segmentData = await fetchStorySegment(prompt); 
-      await processSuccessfulSegment(segmentData, prompt);
+      await processSuccessfulSegment(segmentData);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
       if (err instanceof JsonParseError) {
@@ -749,7 +749,7 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
       <header className="w-full max-w-5xl mb-8 text-center"> {/* Increased bottom margin */}
         {/* 1. Adventure Title */}
         <h1 className="font-press-start text-3xl text-purple-400 tracking-tight mb-3"> {/* Adjusted margin */}
-          {gameState.adventureOutline ? gameState.adventureOutline.title : "Gemini Adventure RPG"}
+          {gameState.adventureOutline ? gameState.adventureOutline.title : "Forge your Journey"}
         </h1>
 
         {/* 2. Overall Goal */}
@@ -822,7 +822,6 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
           {/* Main content area: Image and Scene Description */}
           <div className="lg:w-2/3 flex-shrink-0 flex flex-col gap-6">
             <StoryDisplay
-              sceneDescription={gameState.currentSegment.sceneDescription}
               imageUrl={gameState.currentSegment.imageUrl}
               isLoadingImage={gameState.isLoadingImage && !gameState.currentSegment.imageUrl}
               isLoadingStory={gameState.isLoadingStory && !gameState.currentSegment.sceneDescription}
@@ -915,7 +914,7 @@ Format response STRICTLY as JSON. Keys: sceneDescription, choices, imagePrompt, 
       )}
       
       <footer className="w-full max-w-5xl mt-12 text-center text-sm text-gray-500"> {/* Increased from text-xs */}
-        <p>&copy; {new Date().getFullYear()} Gemini Adventure RPG. Content generation by Google Gemini.</p>
+        <p>&copy; {new Date().getFullYear()} Forge your Journey. Content generation by Google Gemini.</p>
       </footer>
     </div>
   );

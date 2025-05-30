@@ -1,6 +1,6 @@
 {
   "name": "Forge your Journey",
-  "description": "Step into Forge your Journey, the groundbreaking text-based RPG where you are the architect of your own epic tale. Powered by an advanced AI Dungeon a groundbreaking text-based RPG where an advanced AI Dungeon Master crafts your unique adventure. Shape dynamic narratives with every choice, influencing genre and persona. powered by Gemini for story generation and Imagen for scene visualization. Embark on unique quests where your choices shape the narrative.",
+  "description": "Step into Forge your Journey, the groundbreaking text-based RPG where you are the architect of your own epic tale. An advanced AI Dungeon Master crafts your unique adventure, powered by Gemini for story generation and Imagen for scene visualization. Shape dynamic narratives with every choice, influencing genre and persona. Embark on unique quests where your choices shape the narrative.",
   "requestFramePermissions": [],
   "prompt": ""
 }
