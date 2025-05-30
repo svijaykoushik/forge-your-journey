@@ -13,10 +13,5 @@ export default defineConfig(({ mode }) => {
                 '@': path.resolve(__dirname, '.'),
             },
         },
-        base: '/forge-your-journey',
-        build: {
-            outDir: 'dist/forge-your-journey', // Specify the output directory for the build
-            emptyOutDir: true, // Optional: Clears the output directory before building
-        },
     };
 });
