@@ -1,6 +1,7 @@
 
+
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { StorySegment, GeminiStoryResponse, AdventureOutline, GeminiAdventureOutlineResponse, AdventureStage, Persona, GeminiExaminationResponse, JsonParseError, InventoryItem, GeminiStoryResponseItemFound, WorldDetails, GeminiWorldDetailsResponse, genrePersonaDetails } from '../types';
+import { StorySegment, GeminiStoryResponse, AdventureOutline, GeminiAdventureOutlineResponse, AdventureStage, Persona, GeminiExaminationResponse, JsonParseError, InventoryItem, GeminiStoryResponseItemFound, WorldDetails, GeminiWorldDetailsResponse, genrePersonaDetails, Choice, ImageGenerationQuotaError } from '../types';
 
 const API_KEY = process.env.API_KEY as string;
 
@@ -17,9 +18,9 @@ const slugify = (text: string): string => {
     .toString()
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-') // Replace spaces with -
-    .replace(/[^\w-]+/g, '') // Remove all non-word chars
-    .replace(/--+/g, '-'); // Replace multiple - with single -
+    .replace(/\s+/g, '-') 
+    .replace(/[^\w-]+/g, '') 
+    .replace(/--+/g, '-'); 
 }
 
 const parseJsonFromText = <T,>(text: string, isFixAttempt: boolean = false): T => {
@@ -76,15 +77,33 @@ const parseJsonFromText = <T,>(text: string, isFixAttempt: boolean = false): T =
     if (e.message) {
         detailedError += ` | Parser error: ${e.message}`;
     }
-    throw new JsonParseError(detailedError, text); // text is the original, pre-processed text from AI.
+    throw new JsonParseError(detailedError, text);
   }
 };
+
+const handleError = (error: any, context: string): Error => {
+    console.error(`Error in ${context}:`, error);
+    if (error instanceof JsonParseError || error instanceof ImageGenerationQuotaError) {
+        throw error;
+    }
+    let message = `An unknown error occurred in ${context}.`;
+    if (error instanceof Error) {
+        message = error.message;
+        if (message.includes("API key not valid")) {
+            return new Error("Invalid API Key. Please check your configuration.");
+        }
+        if (message.includes("quota") || message.includes("RESOURCE_EXHAUSTED")) { // Generic quota for text models
+            return new Error(`API quota likely exceeded for ${context}. Please try again later or check your plan. Error: ${message}`);
+        }
+    }
+    return new Error(message);
+}
+
 
 export const fetchAdventureOutline = async (genre: string, persona: Persona): Promise<AdventureOutline> => {
   if (!ai) {
     throw new Error("Gemini API client not initialized. API_KEY might be missing.");
   }
-  // Persona is the base persona type, genrePersonaDetails is available if needed for prompt enrichment
   const genreSpecificPersonaTitle = genrePersonaDetails[genre]?.[persona]?.title || persona;
 
   const prompt = `You are a master storyteller and game designer. Generate a compelling adventure outline for a text-based RPG.
@@ -143,22 +162,13 @@ Respond ONLY with the valid JSON object, without any surrounding text or markdow
     });
     return outlineData;
   } catch (error) {
-    console.error("Error fetching adventure outline:", error);
-    if (error instanceof Error && !(error instanceof JsonParseError)) {
-        if (error.message.includes("API key not valid")) {
-            throw new Error("Invalid API Key. Please check your configuration.");
-        }
-        if (error.message.includes("quota")) {
-            throw new Error("API quota exceeded. Please try again later.");
-        }
-    }
-    throw error;
+    throw handleError(error, "fetchAdventureOutline");
   }
 };
 
 export const fetchWorldDetails = async (
   adventureOutline: AdventureOutline,
-  persona: Persona, // Base persona
+  persona: Persona, 
   genre: string
 ): Promise<WorldDetails> => {
   if (!ai) {
@@ -201,7 +211,6 @@ Respond ONLY with the valid JSON object, without any surrounding text or markdow
     });
     const worldData = parseJsonFromText<GeminiWorldDetailsResponse>(response.text);
 
-    // Basic validation
     if (!worldData || typeof worldData.worldName !== 'string' || worldData.worldName.trim() === "" ||
         !Array.isArray(worldData.keyEnvironmentalFeatures) || !Array.isArray(worldData.dominantSocietiesOrFactions) ||
         !Array.isArray(worldData.uniqueCreaturesOrMonsters) || typeof worldData.magicSystemOverview !== 'string' ||
@@ -211,34 +220,38 @@ Respond ONLY with the valid JSON object, without any surrounding text or markdow
     }
     return worldData;
   } catch (error) {
-    console.error("Error fetching world details:", error);
-    if (error instanceof Error && !(error instanceof JsonParseError)) {
-        if (error.message.includes("API key not valid")) {
-            throw new Error("Invalid API Key. Please check your configuration.");
-        }
-        if (error.message.includes("quota")) {
-            throw new Error("API quota exceeded. Please try again later.");
-        }
-    }
-    throw error;
+    throw handleError(error, "fetchWorldDetails");
   }
 };
 
 
 export const fetchStorySegment = async (
-  fullPrompt: string // This fullPrompt will now be constructed in App.tsx to include world details
+  fullPrompt: string, 
+  isInitialScene: boolean = false 
 ): Promise<StorySegment> => {
   if (!ai) {
     throw new Error("Gemini API client not initialized. API_KEY might be missing.");
   }
-  // The fullPrompt already contains instructions for JSON, persona, inventory, world details etc.
-  // Ensure the final instruction for JSON only response is at the very end.
-  const finalPrompt = `${fullPrompt}\n\nRespond ONLY with the valid JSON object as specified, without any surrounding text or markdown fences. The JSON object should include keys: sceneDescription, choices, imagePrompt, isFinalScene, and optionally itemFound (which itself is an object with 'name' and 'description' if an item is awarded).`;
+
+  const augmentedPrompt = `${fullPrompt}
+
+General Instructions for Story Segment Generation:
+- "sceneDescription": Should be vivid but concise, ideally 2-4 sentences.
+- "choices": If not "isUserInputCommandOnly", provide 3 distinct choices. Each choice object must include:
+    - "text": Player-facing choice text.
+    - "outcomePrompt": AI instruction for the next scene if this choice is picked. This prompt should imply the nature of the consequence (positive, negative, neutral) which the AI will then narrate in the next scene's description.
+    - "signalsStageCompletion": Boolean. True if this choice DIRECTLY completes the current stage objective.
+    - "leadsToFailure": Boolean. True if this choice leads to definitive game failure.
+- "isUserInputCommandOnly": Boolean. There is a small chance (around 10-15%, slightly less for the very first scene unless context demands it) that the situation calls for the player's direct input. In such cases, set this to true, and the "choices" array MUST be empty. The "sceneDescription" should naturally lead to the player needing to decide what to do.
+- "isFailureScene": Boolean. Set to true ONLY if this scene itself IS the game failure narration (e.g., after a choice with "leadsToFailure: true" was picked). If true, "choices" should be empty, and "imagePrompt" can be a somber final image.
+- "isFinalScene": Boolean. Set to true ONLY if this scene represents the SUCCESSFUL conclusion of the ENTIRE adventure.
+
+Respond ONLY with the valid JSON object as specified, without any surrounding text or markdown fences. The JSON object should include keys: sceneDescription, choices, imagePrompt, isFinalScene, isFailureScene, isUserInputCommandOnly, and optionally itemFound.`;
 
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
       model: GENAI_MODEL_NAME,
-      contents: finalPrompt,
+      contents: augmentedPrompt,
       config: {
         responseMimeType: "application/json",
       },
@@ -246,16 +259,24 @@ export const fetchStorySegment = async (
 
     const storyData = parseJsonFromText<GeminiStoryResponse>(response.text);
     
-    if (!storyData || typeof storyData.sceneDescription !== 'string' || !Array.isArray(storyData.choices) || typeof storyData.imagePrompt !== 'string') {
+    if (!storyData || typeof storyData.sceneDescription !== 'string' || 
+        (storyData.isUserInputCommandOnly === false && !Array.isArray(storyData.choices)) || 
+        (storyData.isUserInputCommandOnly === true && (!Array.isArray(storyData.choices) || storyData.choices.length !== 0)) || 
+        typeof storyData.imagePrompt !== 'string') {
         console.error("Invalid story data structure received:", storyData);
-        throw new Error("Received incomplete or malformed story data from AI. Essential fields missing or 'choices' is not an array.");
+        throw new Error("Received incomplete or malformed story data from AI. Essential fields missing or 'choices'/'isUserInputCommandOnly' inconsistent.");
     }
-    storyData.choices.forEach((choice, index) => {
-        if (!choice || typeof choice.text !== 'string' || typeof choice.outcomePrompt !== 'string' || typeof choice.signalsStageCompletion !== 'boolean') {
-             console.error(`Malformed choice at index ${index}:`, choice);
-            throw new Error(`Choice ${index + 1} is malformed. Expected 'text' (string), 'outcomePrompt' (string), 'signalsStageCompletion' (boolean). Received: ${JSON.stringify(choice)}`);
-        }
-    });
+
+    if (storyData.choices) { 
+        storyData.choices.forEach((choice, index) => {
+            if (!choice || typeof choice.text !== 'string' || typeof choice.outcomePrompt !== 'string' || 
+                typeof choice.signalsStageCompletion !== 'boolean' || typeof choice.leadsToFailure !== 'boolean') {
+                console.error(`Malformed choice at index ${index}:`, choice);
+                throw new Error(`Choice ${index + 1} is malformed. Expected 'text', 'outcomePrompt', 'signalsStageCompletion', 'leadsToFailure'. Received: ${JSON.stringify(choice)}`);
+            }
+        });
+    }
+
 
     let foundItem: InventoryItem | undefined = undefined;
     if (storyData.itemFound) {
@@ -272,28 +293,158 @@ export const fetchStorySegment = async (
 
     return {
       sceneDescription: storyData.sceneDescription,
-      choices: storyData.choices,
+      choices: storyData.choices || [], 
       imagePrompt: storyData.imagePrompt,
       isFinalScene: typeof storyData.isFinalScene === 'boolean' ? storyData.isFinalScene : false,
+      isFailureScene: typeof storyData.isFailureScene === 'boolean' ? storyData.isFailureScene : false,
+      isUserInputCommandOnly: typeof storyData.isUserInputCommandOnly === 'boolean' ? storyData.isUserInputCommandOnly : false,
       itemFound: foundItem,
     };
   } catch (error) {
-    console.error("Error fetching story segment:", error);
-    if (error instanceof Error && !(error instanceof JsonParseError)) {
-        if (error.message.includes("API key not valid")) {
-            throw new Error("Invalid API Key. Please check your configuration.");
-        }
-        if (error.message.includes("quota")) {
-            throw new Error("API quota exceeded. Please try again later.");
-        }
-    }
-    throw error; 
+    throw handleError(error, "fetchStorySegment");
   }
 };
 
+
+export const fetchCustomActionOutcome = async (
+  userInputText: string,
+  currentSegment: StorySegment,
+  adventureOutline: AdventureOutline,
+  worldDetails: WorldDetails,
+  selectedGenre: string,
+  selectedPersona: Persona,
+  inventory: InventoryItem[],
+  currentStageIndex: number
+): Promise<StorySegment> => {
+  if (!ai) {
+    throw new Error("Gemini API client not initialized. API_KEY might be missing.");
+  }
+
+  const genreSpecificPersonaTitle = genrePersonaDetails[selectedGenre]?.[selectedPersona]?.title || selectedPersona;
+  const personaContext = `The player is a ${genreSpecificPersonaTitle} (base persona: ${selectedPersona}).`;
+  const inventoryContext = inventory.length > 0
+    ? `The player possesses: ${inventory.map(item => item.name).join(', ')}.`
+    : "The player possesses no items yet.";
+  
+  const currentStage = adventureOutline.stages[currentStageIndex];
+
+  const worldContext = `
+World Context for Story Generation:
+World Name: "${worldDetails.worldName}" (Genre Clarification: ${worldDetails.genreClarification})
+Key Environmental Features: ${worldDetails.keyEnvironmentalFeatures.join('; ') || 'N/A'}
+Dominant Societies/Factions: ${worldDetails.dominantSocietiesOrFactions.join('; ') || 'N/A'}
+Unique Creatures/Monsters: ${worldDetails.uniqueCreaturesOrMonsters.join('; ') || 'N/A'}
+Magic System: ${worldDetails.magicSystemOverview}
+Brief History Hook: ${worldDetails.briefHistoryHook}
+Cultural Norms/Taboos: ${worldDetails.culturalNormsOrTaboos.join('; ') || 'N/A'}
+This world information MUST deeply influence the scene description, the types of challenges, the choices available, and any items found.
+`;
+
+  const prompt = `You are a master storyteller for a dynamic text-based RPG adventure game.
+Adventure Genre: ${selectedGenre}.
+${personaContext}
+${inventoryContext}
+${worldContext}
+The overall adventure is titled: "${adventureOutline.title}".
+The player's ultimate goal is: "${adventureOutline.overallGoal}".
+Current Stage ${currentStageIndex + 1}: "${currentStage.title}" (Objective: "${currentStage.objective}").
+Previous Scene Description was: "${currentSegment.sceneDescription}"
+Player's custom action: "${userInputText}"
+
+Your task is to evaluate the player's custom action and generate the resulting story segment.
+
+1.  Evaluation:
+    *   Is the action "${userInputText}" plausible, safe, and sensible given the current scene, world details, player's persona (${genreSpecificPersonaTitle}), inventory, and the ${selectedGenre} genre?
+    *   Consider if it aligns with or contradicts cultural norms/taboos or the magic system of "${worldDetails.worldName}".
+    *   Does it directly contribute to the current stage objective ("${currentStage.objective}") or the overall goal ("${adventureOutline.overallGoal}")? Or does it lead to significant danger or failure?
+
+2.  Generation - Adhere STRICTLY to this JSON format:
+    {
+      "sceneDescription": "string", 
+      "choices": [], 
+      "isUserInputCommandOnly": boolean, 
+      "imagePrompt": "string", 
+      "isFinalScene": boolean, 
+      "isFailureScene": boolean, 
+      "itemFound": { "name": "string", "description": "string" } 
+    }
+
+    *   If action is IMPOSSIBLE/NONSENSICAL:
+        *   "sceneDescription": Explain why in a narrative way.
+        *   "choices": Return the *exact same choices array* as in the previous scene: ${JSON.stringify(currentSegment.choices)}.
+        *   "isUserInputCommandOnly": Set to ${currentSegment.isUserInputCommandOnly}. (If previous was user-input-only, this should be too).
+        *   "imagePrompt": Reflect the failed attempt or unchanged scene.
+        *   "isFailureScene": Likely false, unless the attempt itself is catastrophic.
+    *   If action is POSSIBLE:
+        *   "sceneDescription": Narrate the outcome, including positive/negative consequences.
+        *   "choices": Provide 3 new distinct choices relevant to the new situation OR set "isUserInputCommandOnly": true (10-15% chance) and "choices": [].
+        *   "imagePrompt": New image prompt matching the new scene.
+        *   "isFinalScene": True if successful adventure completion.
+        *   "isFailureScene": True if this action leads to game failure.
+        *   "itemFound": Award if logical.
+
+Sanitize user input: Do not directly reflect harmful, offensive, or role-play-breaking user input. If user input is inappropriate, make the "sceneDescription" a gentle refusal like "You ponder that course of action, but decide against it." and return original choices.
+
+Respond ONLY with the valid JSON object.`;
+
+  try {
+    const response: GenerateContentResponse = await ai.models.generateContent({
+      model: GENAI_MODEL_NAME,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 0 } 
+      },
+    });
+    const storyData = parseJsonFromText<GeminiStoryResponse>(response.text);
+
+     if (!storyData || typeof storyData.sceneDescription !== 'string' || 
+        (storyData.isUserInputCommandOnly === false && !Array.isArray(storyData.choices)) ||
+        (storyData.isUserInputCommandOnly === true && (!Array.isArray(storyData.choices) || storyData.choices.length !== 0)) ||
+        typeof storyData.imagePrompt !== 'string') {
+        console.error("Invalid custom action outcome structure received:", storyData);
+        throw new Error("Received incomplete or malformed story data from AI for custom action. Essential fields missing or 'choices'/'isUserInputCommandOnly' inconsistent.");
+    }
+    if (storyData.choices) {
+        storyData.choices.forEach((choice, index) => {
+            if (!choice || typeof choice.text !== 'string' || typeof choice.outcomePrompt !== 'string' || 
+                typeof choice.signalsStageCompletion !== 'boolean' || typeof choice.leadsToFailure !== 'boolean') {
+                console.error(`Malformed choice at index ${index} in custom action response:`, choice);
+                throw new Error(`Choice ${index + 1} (custom action) is malformed.`);
+            }
+        });
+    }
+
+    let foundItem: InventoryItem | undefined = undefined;
+    if (storyData.itemFound) {
+      if (typeof storyData.itemFound.name === 'string' && typeof storyData.itemFound.description === 'string' && storyData.itemFound.name.trim() !== "") {
+        foundItem = {
+          id: slugify(storyData.itemFound.name),
+          name: storyData.itemFound.name.trim(),
+          description: storyData.itemFound.description.trim()
+        };
+      }
+    }
+
+    return {
+      sceneDescription: storyData.sceneDescription,
+      choices: storyData.choices || [],
+      imagePrompt: storyData.imagePrompt,
+      isFinalScene: typeof storyData.isFinalScene === 'boolean' ? storyData.isFinalScene : false,
+      isFailureScene: typeof storyData.isFailureScene === 'boolean' ? storyData.isFailureScene : false,
+      isUserInputCommandOnly: typeof storyData.isUserInputCommandOnly === 'boolean' ? storyData.isUserInputCommandOnly : false,
+      itemFound: foundItem,
+    };
+
+  } catch (error) {
+    throw handleError(error, "fetchCustomActionOutcome");
+  }
+};
+
+
 export const attemptToFixJson = async (
   faultyJsonText: string,
-  originalPromptContext: string // The prompt that led to the faulty JSON
+  originalPromptContext: string 
 ): Promise<StorySegment> => {
   if (!ai) {
     throw new Error("Gemini API client not initialized. API_KEY might be missing.");
@@ -304,7 +455,8 @@ export const attemptToFixJson = async (
 ${faultyJsonText}
 \`\`\`
 
-This response was for a request related to generating a story segment. The original request's core instructions were to produce a JSON object with keys: "sceneDescription" (string), "choices" (array of objects, each with "text" (string), "outcomePrompt" (string), and "signalsStageCompletion" (boolean)), "imagePrompt" (string), "isFinalScene" (boolean), and optionally "itemFound" (an object with "name" (string) and "description" (string)).
+This response was for a request related to generating a story segment. The original request's core instructions were to produce a JSON object with keys: "sceneDescription" (string), "choices" (array of objects, each with "text" (string), "outcomePrompt" (string), "signalsStageCompletion" (boolean), and "leadsToFailure" (boolean)), "imagePrompt" (string), "isFinalScene" (boolean), "isFailureScene" (boolean), "isUserInputCommandOnly" (boolean), and optionally "itemFound" (an object with "name" (string) and "description" (string)).
+If "isUserInputCommandOnly" is true, "choices" array must be empty.
 The context of the original prompt included aspects like:
 "${originalPromptContext.substring(0, 500)}..."
 
@@ -321,16 +473,22 @@ Please analyze the faulty JSON, correct its structure, and provide ONLY the vali
 
     const storyData = parseJsonFromText<GeminiStoryResponse>(response.text, true);
 
-    if (!storyData || typeof storyData.sceneDescription !== 'string' || !Array.isArray(storyData.choices) || typeof storyData.imagePrompt !== 'string') {
+    if (!storyData || typeof storyData.sceneDescription !== 'string' || 
+        (storyData.isUserInputCommandOnly === false && !Array.isArray(storyData.choices)) ||
+        (storyData.isUserInputCommandOnly === true && (!Array.isArray(storyData.choices) || storyData.choices.length !== 0)) ||
+        typeof storyData.imagePrompt !== 'string') {
         console.error("Invalid story data structure received after fix attempt:", storyData);
-        throw new Error("Received incomplete or malformed story data from AI after fix attempt. Essential fields missing or 'choices' is not an array.");
+        throw new Error("Received incomplete or malformed story data from AI after fix attempt. Essential fields missing or inconsistent.");
     }
-     storyData.choices.forEach((choice, index) => {
-        if (!choice || typeof choice.text !== 'string' || typeof choice.outcomePrompt !== 'string' || typeof choice.signalsStageCompletion !== 'boolean') {
-             console.error(`Malformed choice at index ${index} after fix attempt:`, choice);
-            throw new Error(`Choice ${index + 1} (post-fix) is malformed. Expected 'text' (string), 'outcomePrompt' (string), 'signalsStageCompletion' (boolean).`);
-        }
-    });
+     if (storyData.choices) {
+        storyData.choices.forEach((choice, index) => {
+            if (!choice || typeof choice.text !== 'string' || typeof choice.outcomePrompt !== 'string' || 
+                typeof choice.signalsStageCompletion !== 'boolean' || typeof choice.leadsToFailure !== 'boolean') {
+                console.error(`Malformed choice at index ${index} after fix attempt:`, choice);
+                throw new Error(`Choice ${index + 1} (post-fix) is malformed.`);
+            }
+        });
+    }
     
     let foundItem: InventoryItem | undefined = undefined;
     if (storyData.itemFound) {
@@ -347,25 +505,15 @@ Please analyze the faulty JSON, correct its structure, and provide ONLY the vali
 
     return {
       sceneDescription: storyData.sceneDescription,
-      choices: storyData.choices,
+      choices: storyData.choices || [],
       imagePrompt: storyData.imagePrompt,
       isFinalScene: typeof storyData.isFinalScene === 'boolean' ? storyData.isFinalScene : false,
+      isFailureScene: typeof storyData.isFailureScene === 'boolean' ? storyData.isFailureScene : false,
+      isUserInputCommandOnly: typeof storyData.isUserInputCommandOnly === 'boolean' ? storyData.isUserInputCommandOnly : false,
       itemFound: foundItem,
     };
   } catch (error) {
-    console.error("Error attempting to fix JSON:", error);
-     if (error instanceof Error && !(error instanceof JsonParseError)) {
-        if (error.message.includes("API key not valid")) {
-            throw new Error("Invalid API Key for fix attempt. Please check your configuration.");
-        }
-        if (error.message.includes("quota")) {
-            throw new Error("API quota exceeded during fix attempt. Please try again later.");
-        }
-    }
-    if (!(error instanceof JsonParseError)) {
-        throw new Error(`Failed during JSON fix attempt: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    throw error;
+    throw handleError(error, "attemptToFixJson");
   }
 };
 
@@ -377,7 +525,7 @@ export const fetchSceneExamination = async (
     worldDetails: WorldDetails, 
     currentStageTitle: string,
     currentStageObjective: string,
-    persona: Persona, // Base persona
+    persona: Persona, 
     inventory: InventoryItem[]
 ): Promise<GeminiExaminationResponse> => {
     if (!ai) {
@@ -417,7 +565,7 @@ Based on this, provide a more detailed "examinationText" of the scene. This text
 - Consider the player's persona (${genreSpecificPersonaTitle}) and items they possess for any specific insights they might gain, filtered through their understanding of this world.
 - DO NOT advance the plot or introduce new choices. This is for observation only.
 - Maintain the ${adventureGenre} tone, enriched by the world's specific genre clarification.
-- Be 2-4 sentences long.
+- Be 2-4 sentences long and concise.
 
 Format the response STRICTLY as a JSON object:
 {
@@ -440,16 +588,7 @@ Respond ONLY with the valid JSON object.`;
         }
         return examinationData;
     } catch (error) {
-        console.error("Error fetching scene examination:", error);
-        if (error instanceof Error && !(error instanceof JsonParseError)) {
-            if (error.message.includes("API key not valid")) {
-                throw new Error("Invalid API Key. Please check your configuration.");
-            }
-            if (error.message.includes("quota")) {
-                throw new Error("API quota exceeded. Please try again later.");
-            }
-        }
-        throw error;
+        throw handleError(error, "fetchSceneExamination");
     }
 };
 
@@ -472,8 +611,16 @@ export const generateImage = async (prompt: string): Promise<string> => {
       console.warn("No image generated or image data is missing for prompt:", prompt);
       return ""; 
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error generating image:", error);
-    throw error; 
+    if (error.message && (error.message.includes("RESOURCE_EXHAUSTED") || (error.toString && error.toString().includes("RESOURCE_EXHAUSTED")) )) {
+        // Check for a status code if available, e.g. error.code === 429 or error.status === 'RESOURCE_EXHAUSTED'
+        // For now, checking message content as per prompt.
+        throw new ImageGenerationQuotaError("Image generation quota has been exceeded. This feature will be disabled for the remainder of your session.");
+    }
+    if (error.message && error.message.includes("API key not valid")) {
+        throw new Error("Invalid API Key for image generation. Please check your configuration.");
+    }
+    throw new Error(error.message || "An unknown error occurred during image generation.");
   }
 };

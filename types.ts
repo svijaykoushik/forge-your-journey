@@ -1,5 +1,12 @@
 
 
+export class ImageGenerationQuotaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageGenerationQuotaError";
+  }
+}
+
 export interface AdventureStage {
   title: string;
   description: string;
@@ -148,7 +155,8 @@ export interface Choice {
   text: string;
   outcomePrompt: string;
   signalsStageCompletion?: boolean;
-  isExamineAction?: boolean; // For the special "Examine" choice
+  leadsToFailure?: boolean; 
+  isExamineAction?: boolean;
 }
 
 export interface InventoryItem {
@@ -159,24 +167,27 @@ export interface InventoryItem {
 
 export interface StorySegment {
   sceneDescription: string;
-  choices: Choice[];
+  choices: Choice[]; 
   imagePrompt: string;
   imageUrl?: string;
-  isFinalScene?: boolean;
-  itemFound?: InventoryItem; // Added for newly found item in this segment
+  isFinalScene?: boolean; 
+  isFailureScene?: boolean; 
+  itemFound?: InventoryItem;
+  isUserInputCommandOnly?: boolean; 
 }
 
 export interface JournalEntry {
-  type: 'scene' | 'choice' | 'examine' | 'system' | 'item_found' | 'world_generated' | 'genre_selected' | 'persona_selected';
+  type: 'scene' | 'choice' | 'custom_action' | 'examine' | 'system' | 'item_found' | 'world_generated' | 'genre_selected' | 'persona_selected' | 'action_impossible';
   content: string;
-  timestamp: string; // ISO string format
+  timestamp: string; 
 }
 
 export type RetryType = 'resend_original' | 'fix_json';
 export interface RetryInfo {
   type: RetryType;
-  originalPrompt: string; // The prompt that led to the current situation
-  faultyJsonText?: string; // The malformed JSON text, if applicable
+  originalPrompt: string; 
+  faultyJsonText?: string; 
+  customActionText?: string; 
 }
 
 export interface WorldDetails {
@@ -191,7 +202,7 @@ export interface WorldDetails {
 }
 
 export interface GameState {
-  selectedGenre: GameGenre | null; // Added selected genre
+  selectedGenre: GameGenre | null;
   selectedPersona: Persona | null;
   adventureOutline: AdventureOutline | null;
   worldDetails: WorldDetails | null; 
@@ -203,22 +214,26 @@ export interface GameState {
   isLoadingImage: boolean;
   error: string | null;
   apiKeyMissing: boolean;
-  isGameEnded: boolean;
+  isGameEnded: boolean; 
+  isGameFailed: boolean; 
   journal: JournalEntry[];
   inventory: InventoryItem[];
   lastRetryInfo: RetryInfo | null;
+  imageGenerationPermanentlyDisabled: boolean; // New: for quota limits
 }
 
 export interface SavableGameState {
-  selectedGenre: GameGenre; // Added selected genre
-  selectedPersona: Persona; // Changed to non-null, assuming game can't be saved before persona selection
+  selectedGenre: GameGenre;
+  selectedPersona: Persona;
   adventureOutline: AdventureOutline;
   worldDetails: WorldDetails; 
   currentSegment: StorySegment;
   currentStageIndex: number;
   isGameEnded: boolean;
+  isGameFailed: boolean; 
   journal: JournalEntry[];
   inventory: InventoryItem[];
+  imageGenerationPermanentlyDisabled: boolean; // New: for quota limits
 }
 
 export interface GeminiStoryResponseItemFound {
@@ -228,10 +243,12 @@ export interface GeminiStoryResponseItemFound {
 
 export interface GeminiStoryResponse {
   sceneDescription: string;
-  choices: Choice[];
+  choices: Choice[]; 
   imagePrompt: string;
   isFinalScene?: boolean;
+  isFailureScene?: boolean; 
   itemFound?: GeminiStoryResponseItemFound;
+  isUserInputCommandOnly?: boolean; 
 }
 
 export interface GeminiAdventureOutlineResponse extends AdventureOutline {}
@@ -242,7 +259,6 @@ export interface GeminiExaminationResponse {
   examinationText: string;
 }
 
-// Custom error class for JSON parsing issues to carry raw text
 export class JsonParseError extends Error {
   constructor(message: string, public rawText: string) {
     super(message);

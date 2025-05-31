@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import { JournalEntry } from '../types';
 
@@ -24,6 +25,10 @@ const JournalLog: React.FC<JournalLogProps> = ({ journal, className }) => {
         return "border-l-4 border-blue-500 pl-3";
       case 'choice':
         return "border-l-4 border-green-500 pl-3";
+      case 'custom_action':
+        return "border-l-4 border-cyan-500 pl-3"; // New style for custom action
+      case 'action_impossible':
+        return "border-l-4 border-orange-400 pl-3 text-orange-300"; // New style for impossible action
       case 'examine':
         return "border-l-4 border-yellow-500 pl-3";
       case 'item_found':
@@ -47,6 +52,10 @@ const JournalLog: React.FC<JournalLogProps> = ({ journal, className }) => {
         return <strong className="text-blue-400">Scene:</strong>;
       case 'choice':
         return <strong className="text-green-400">Choice:</strong>;
+      case 'custom_action':
+        return <strong className="text-cyan-400">Action:</strong>; // New prefix
+      case 'action_impossible':
+        return <strong className="text-orange-400">Outcome:</strong>; // New prefix
       case 'examine':
         return <strong className="text-yellow-400">Examined:</strong>;
       case 'item_found':
@@ -65,8 +74,7 @@ const JournalLog: React.FC<JournalLogProps> = ({ journal, className }) => {
   }
 
   if (!journal || journal.length === 0) {
-    // This case is handled by App.tsx for desktop to show a styled empty state.
-     return null;
+    return null;
   }
 
   const defaultClasses = "bg-gray-800 p-4 rounded-lg shadow-xl max-h-96 overflow-y-auto custom-scrollbar";
@@ -77,7 +85,7 @@ const JournalLog: React.FC<JournalLogProps> = ({ journal, className }) => {
         Adventure Log
       </h3>
       {journal.map((entry, index) => (
-        <div key={index} className={`py-2 my-1 text-base ${getEntryStyle(entry.type)}`}> {/* Increased font size from text-sm */}
+        <div key={index} className={`py-2 my-1 text-base ${getEntryStyle(entry.type)}`}>
           <span className="text-xs text-gray-500 block mb-0.5">{formatTimestamp(entry.timestamp)}</span>
           <div className="flex gap-x-2">
             <span>{getEntryPrefix(entry.type)}</span>
