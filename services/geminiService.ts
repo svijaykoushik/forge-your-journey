@@ -1,7 +1,7 @@
 
 
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
-import { StorySegment, GeminiStoryResponse, AdventureOutline, GeminiAdventureOutlineResponse, AdventureStage, Persona, GeminiExaminationResponse, JsonParseError, InventoryItem, GeminiStoryResponseItemFound, WorldDetails, GeminiWorldDetailsResponse, genrePersonaDetails, Choice, ImageGenerationQuotaError } from '../types';
+import { GenerateContentResponse, GoogleGenAI } from "@google/genai";
+import { AdventureOutline, AdventureStage, GeminiAdventureOutlineResponse, GeminiExaminationResponse, GeminiStoryResponse, GeminiWorldDetailsResponse, genrePersonaDetails, GenreSpecificPersonaDetails, ImageGenerationQuotaError, InventoryItem, JsonParseError, Persona, StorySegment, WorldDetails } from '../types';
 
 const API_KEY = process.env.API_KEY as string;
 
@@ -100,7 +100,7 @@ const handleError = (error: any, context: string): Error => {
 }
 
 
-export const fetchAdventureOutline = async (genre: string, persona: Persona): Promise<AdventureOutline> => {
+export const fetchAdventureOutline = async (genre: keyof GenreSpecificPersonaDetails, persona: Persona): Promise<AdventureOutline> => {
   if (!ai) {
     throw new Error("Gemini API client not initialized. API_KEY might be missing.");
   }
@@ -149,7 +149,7 @@ Respond ONLY with the valid JSON object, without any surrounding text or markdow
       },
     });
 
-    const outlineData = parseJsonFromText<GeminiAdventureOutlineResponse>(response.text);
+    const outlineData = parseJsonFromText<GeminiAdventureOutlineResponse>(response.text!);
     if (!outlineData || !outlineData.title || !outlineData.overallGoal || !outlineData.stages || !Array.isArray(outlineData.stages) || outlineData.stages.length === 0) {
       console.error("Invalid adventure outline structure received:", outlineData);
       throw new Error("Received incomplete or malformed adventure outline from AI. Essential fields missing or 'stages' is not a valid array.");
@@ -169,7 +169,7 @@ Respond ONLY with the valid JSON object, without any surrounding text or markdow
 export const fetchWorldDetails = async (
   adventureOutline: AdventureOutline,
   persona: Persona, 
-  genre: string
+  genre: keyof GenreSpecificPersonaDetails
 ): Promise<WorldDetails> => {
   if (!ai) {
     throw new Error("Gemini API client not initialized. API_KEY might be missing.");
@@ -209,7 +209,7 @@ Respond ONLY with the valid JSON object, without any surrounding text or markdow
         responseMimeType: "application/json",
       },
     });
-    const worldData = parseJsonFromText<GeminiWorldDetailsResponse>(response.text);
+    const worldData = parseJsonFromText<GeminiWorldDetailsResponse>(response.text!);
 
     if (!worldData || typeof worldData.worldName !== 'string' || worldData.worldName.trim() === "" ||
         !Array.isArray(worldData.keyEnvironmentalFeatures) || !Array.isArray(worldData.dominantSocietiesOrFactions) ||
@@ -257,7 +257,7 @@ Respond ONLY with the valid JSON object as specified, without any surrounding te
       },
     });
 
-    const storyData = parseJsonFromText<GeminiStoryResponse>(response.text);
+    const storyData = parseJsonFromText<GeminiStoryResponse>(response.text!);
     
     if (!storyData || typeof storyData.sceneDescription !== 'string' || 
         (storyData.isUserInputCommandOnly === false && !Array.isArray(storyData.choices)) || 
@@ -311,7 +311,7 @@ export const fetchCustomActionOutcome = async (
   currentSegment: StorySegment,
   adventureOutline: AdventureOutline,
   worldDetails: WorldDetails,
-  selectedGenre: string,
+  selectedGenre: keyof GenreSpecificPersonaDetails,
   selectedPersona: Persona,
   inventory: InventoryItem[],
   currentStageIndex: number
@@ -396,7 +396,7 @@ Respond ONLY with the valid JSON object.`;
         thinkingConfig: { thinkingBudget: 0 } 
       },
     });
-    const storyData = parseJsonFromText<GeminiStoryResponse>(response.text);
+    const storyData = parseJsonFromText<GeminiStoryResponse>(response.text!);
 
      if (!storyData || typeof storyData.sceneDescription !== 'string' || 
         (storyData.isUserInputCommandOnly === false && !Array.isArray(storyData.choices)) ||
@@ -471,7 +471,7 @@ Please analyze the faulty JSON, correct its structure, and provide ONLY the vali
       },
     });
 
-    const storyData = parseJsonFromText<GeminiStoryResponse>(response.text, true);
+    const storyData = parseJsonFromText<GeminiStoryResponse>(response.text!, true);
 
     if (!storyData || typeof storyData.sceneDescription !== 'string' || 
         (storyData.isUserInputCommandOnly === false && !Array.isArray(storyData.choices)) ||
@@ -520,7 +520,7 @@ Please analyze the faulty JSON, correct its structure, and provide ONLY the vali
 
 export const fetchSceneExamination = async (
     currentSceneDescription: string,
-    adventureGenre: string,
+    adventureGenre: keyof GenreSpecificPersonaDetails,
     adventureOutline: AdventureOutline,
     worldDetails: WorldDetails, 
     currentStageTitle: string,
@@ -581,7 +581,7 @@ Respond ONLY with the valid JSON object.`;
                 responseMimeType: "application/json",
             },
         });
-        const examinationData = parseJsonFromText<GeminiExaminationResponse>(response.text);
+        const examinationData = parseJsonFromText<GeminiExaminationResponse>(response.text!);
         if (!examinationData || typeof examinationData.examinationText !== 'string' || examinationData.examinationText.trim() === "") {
             console.error("Invalid examination data structure received:", examinationData);
             throw new Error("Received incomplete or malformed examination data from AI. 'examinationText' field is missing or empty.");
@@ -604,7 +604,7 @@ export const generateImage = async (prompt: string): Promise<string> => {
       config: { numberOfImages: 1, outputMimeType: "image/jpeg" },
     });
 
-    if (response.generatedImages && response.generatedImages.length > 0 && response.generatedImages[0].image.imageBytes) {
+    if (response.generatedImages && response.generatedImages.length > 0 && response?.generatedImages?.[0]?.image?.imageBytes) {
       const base64ImageBytes = response.generatedImages[0].image.imageBytes;
       return `data:image/jpeg;base64,${base64ImageBytes}`;
     } else {

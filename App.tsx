@@ -1,16 +1,16 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { GameState, Choice, StorySegment, AdventureOutline, SavableGameState, Persona, JournalEntry, RetryInfo, JsonParseError, WorldDetails, GameGenre, genrePersonaDetails, ImageGenerationQuotaError } from './types';
-import { fetchAdventureOutline, fetchWorldDetails, fetchStorySegment, generateImage, fetchSceneExamination, attemptToFixJson, fetchCustomActionOutcome } from './services/geminiService';
-import StoryDisplay from './components/StoryDisplay';
-import LoadingSpinner from './components/LoadingSpinner';
-import ResumeModal from './components/ResumeModal';
-import PersonaSelection from './components/PersonaSelection';
-import GenreSelection from './components/GenreSelection';
-import JournalLog from './components/JournalLog';
-import ExaminationModal from './components/ExaminationModal';
+import React, { useCallback, useEffect, useState } from 'react';
 import ChoicePanel from './components/ChoicePanel';
+import ExaminationModal from './components/ExaminationModal';
+import GenreSelection from './components/GenreSelection';
 import InventoryDisplay from './components/InventoryDisplay';
+import JournalLog from './components/JournalLog';
+import LoadingSpinner from './components/LoadingSpinner';
+import PersonaSelection from './components/PersonaSelection';
+import ResumeModal from './components/ResumeModal';
+import StoryDisplay from './components/StoryDisplay';
+import { attemptToFixJson, fetchAdventureOutline, fetchCustomActionOutcome, fetchSceneExamination, fetchStorySegment, fetchWorldDetails, generateImage } from './services/geminiService';
+import { Choice, GameGenre, GameState, genrePersonaDetails, ImageGenerationQuotaError, JournalEntry, JsonParseError, Persona, SavableGameState, StorySegment } from './types';
 
 const LOCAL_STORAGE_KEY = 'forgeYourJourney_v1';
 const IMAGE_QUOTA_DISABLED_KEY = 'forgeYourJourney_imageQuotaDisabled_v1';
@@ -187,7 +187,7 @@ const App: React.FC = () => {
         const genreSpecificPersonaTitle = genrePersonaDetails[gameState.selectedGenre!][gameState.selectedPersona!]?.title || gameState.selectedPersona;
         addJournalEntry('system', `Starting new adventure: ${gameState.selectedGenre} - ${genreSpecificPersonaTitle}. Generating outline...`);
         try {
-          const outline = await fetchAdventureOutline(gameState.selectedGenre, gameState.selectedPersona);
+          const outline = await fetchAdventureOutline(gameState.selectedGenre!, gameState.selectedPersona!);
           addJournalEntry('system', `Adventure outline "${outline.title}" generated.`);
           setGameState(prev => ({
             ...prev,
