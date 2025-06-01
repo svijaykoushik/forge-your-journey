@@ -1,7 +1,7 @@
 {
   "name": "forge-your-journey",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,9 +11,11 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
-    "@google/genai": "^1.0.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "@google/genai": "^1.0.1",
+    "express": "^5.1.0",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
@@ -21,5 +23,7 @@
     "gh-pages": "^6.3.0",
     "typescript": "~5.7.2",
     "vite": "^6.2.0"
-  }
+  },
+  "author": "Vijaykoushik, S <svijaykoushik@gmail.com>",
+  "license": "AGPL-3.0-only"
 }

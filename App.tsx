@@ -57,7 +57,8 @@ const App: React.FC = () => {
     isLoadingStory: false,
     isLoadingImage: false,
     error: null,
-    apiKeyMissing: typeof process.env.API_KEY !== 'string' || process.env.API_KEY === '',
+    // apiKeyMissing: typeof process.env.API_KEY !== 'string' || process.env.API_KEY === '', // REMOVED
+    apiKeyMissing: false, // API Key is now server-side, client doesn't check it directly.
     isGameEnded: false,
     isGameFailed: false,
     journal: [],
@@ -100,13 +101,8 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (gameState.apiKeyMissing) {
-      setGameState(prev => ({
-        ...prev,
-        error: "API Key is missing. Please ensure the API_KEY environment variable is set and accessible.",
-      }));
-      return;
-    }
+    // API Key check removed from here, as it's handled by proxy.
+    // If proxy fails due to key, an error will be set through normal API call flow.
 
     const savedGameJson = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (savedGameJson) {
@@ -140,7 +136,7 @@ const App: React.FC = () => {
       setIsSelectingGenre(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.apiKeyMissing]);
+  }, []); // Removed gameState.apiKeyMissing from dependencies
 
   const handleGenreSelected = (genre: GameGenre) => {
     addJournalEntry('genre_selected', `Selected genre: ${genre}.`);
@@ -180,7 +176,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (gameState.isLoadingOutline && gameState.selectedGenre && gameState.selectedPersona && !gameState.adventureOutline && !gameState.apiKeyMissing) {
+    if (gameState.isLoadingOutline && gameState.selectedGenre && gameState.selectedPersona && !gameState.adventureOutline && !gameState.apiKeyMissing) { // apiKeyMissing check can stay as a general guard
       const loadNewOutline = async () => {
         setGameState(prev => ({ ...prev, error: null, isLoadingWorld: false }));
         setCurrentLoadingText(getRandomLoadingText(outlineLoadingTexts));
@@ -213,7 +209,7 @@ const App: React.FC = () => {
       loadNewOutline();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.isLoadingOutline, gameState.selectedGenre, gameState.selectedPersona, gameState.apiKeyMissing, addJournalEntry]);
+  }, [gameState.isLoadingOutline, gameState.selectedGenre, gameState.selectedPersona, gameState.apiKeyMissing, addJournalEntry]); // apiKeyMissing still here as a general check for app readiness, not direct key use.
 
   useEffect(() => {
     if (gameState.isLoadingWorld && gameState.adventureOutline && gameState.selectedGenre && gameState.selectedPersona && !gameState.worldDetails && !gameState.apiKeyMissing) {
@@ -263,12 +259,12 @@ const App: React.FC = () => {
     setGameState(prev => ({
       ...prev,
       isLoadingStory: false,
-      currentSegment: segmentData, // Text part is successfully loaded
+      currentSegment: segmentData, 
       inventory: newInventory,
       isGameEnded: segmentData.isFinalScene || false,
       isGameFailed: segmentData.isFailureScene || false,
       lastRetryInfo: null,
-      error: null, // Clear previous errors before attempting image load
+      error: null, 
       isLoadingImage: shouldAttemptImageLoad,
     }));
 
@@ -292,26 +288,23 @@ const App: React.FC = () => {
                 ...prev,
                 imageGenerationPermanentlyDisabled: true,
                 isLoadingImage: false,
-                error: null, // Do not set a blocking error for quota; notification handles it
+                error: null, 
                 currentSegment: prev.currentSegment ? { ...prev.currentSegment, imageUrl: undefined } : null,
             }));
-            setImageGenerationFeatureEnabled(false); // This state is derived, update it
+            setImageGenerationFeatureEnabled(false); 
             localStorage.setItem(IMAGE_QUOTA_DISABLED_KEY, 'true');
-            // Game continues, StoryDisplay shows quota message. No modal needed.
         } else {
-            // For other image errors, set an error that allows continuing via modal
             addJournalEntry('system', `Image generation failed: ${imgErrorMessage}. Story continues.`);
             setGameState(prev => ({
               ...prev,
               isLoadingImage: false,
               error: `Failed to load scene image: ${imgErrorMessage}. You can continue with the story.`,
               currentSegment: prev.currentSegment ? { ...prev.currentSegment, imageUrl: undefined } : null,
-              // Store image prompt for potential retry, using customActionText for the prompt
               lastRetryInfo: { type: 'resend_original', originalPrompt: "generate_image_action", customActionText: segmentData.imagePrompt }
             }));
         }
       }
-    } else { // Image loading not attempted or already disabled
+    } else { 
       setGameState(prev => ({
         ...prev,
         isLoadingImage: false,
@@ -329,18 +322,20 @@ const App: React.FC = () => {
        setGameState(prev => ({
         ...prev,
         isLoadingStory: true,
-        isLoadingImage: shouldAttemptImageLoadInitial && !gameState.currentSegment, // Only set initial isLoadingImage if no segment yet
+        isLoadingImage: shouldAttemptImageLoadInitial && !gameState.currentSegment, 
         error: null
       }));
     } else if (isRetryAttempt && gameState.lastRetryInfo && gameState.lastRetryInfo.type === 'resend_original' &&
                gameState.lastRetryInfo.originalPrompt !== "fetch_outline_action" &&
                gameState.lastRetryInfo.originalPrompt !== "fetch_world_action" &&
                gameState.lastRetryInfo.originalPrompt !== "examine_action" &&
-               gameState.lastRetryInfo.originalPrompt !== "generate_image_action") { // Exclude image retry from this general story loading text
+               gameState.lastRetryInfo.originalPrompt !== "generate_image_action") { 
         setCurrentLoadingText(getRandomLoadingText(storyLoadingTexts));
     }
 
     try {
+      // The prompt here is already the full, context-rich prompt for Gemini.
+      // fetchStorySegment now sends this to the proxy.
       const segmentData = await fetchStorySegment(prompt, !gameState.currentSegment);
       await processSuccessfulSegment(segmentData);
     } catch (err) {
@@ -415,7 +410,8 @@ Generate the opening story segment.`;
   }, [gameState.adventureOutline, gameState.worldDetails, gameState.selectedGenre, gameState.selectedPersona, gameState.currentSegment, gameState.isLoadingOutline, gameState.isLoadingWorld, gameState.isLoadingStory, gameState.error, showResumeModal, gameState.isGameEnded, gameState.isGameFailed, isSelectingGenre, isSelectingPersona, loadStoryScene, gameState.inventory, gameState.currentStageIndex]);
 
   useEffect(() => {
-    if (gameState.apiKeyMissing || showResumeModal || gameState.isLoadingOutline || gameState.isLoadingWorld || gameState.isLoadingStory || isSelectingGenre || isSelectingPersona || isLoadingExamination) {
+     // apiKeyMissing check removed
+    if (showResumeModal || gameState.isLoadingOutline || gameState.isLoadingWorld || gameState.isLoadingStory || isSelectingGenre || isSelectingPersona || isLoadingExamination) {
       return;
     }
 
@@ -438,27 +434,20 @@ Generate the opening story segment.`;
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stateToSave));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.selectedGenre, gameState.selectedPersona, gameState.adventureOutline, gameState.worldDetails, gameState.currentSegment, gameState.currentStageIndex, gameState.isGameEnded, gameState.isGameFailed, gameState.journal, gameState.inventory, gameState.imageGenerationPermanentlyDisabled, gameState.apiKeyMissing, showResumeModal, gameState.isLoadingOutline, gameState.isLoadingWorld, gameState.isLoadingStory, isSelectingGenre, isSelectingPersona, isLoadingExamination]);
+  }, [gameState.selectedGenre, gameState.selectedPersona, gameState.adventureOutline, gameState.worldDetails, gameState.currentSegment, gameState.currentStageIndex, gameState.isGameEnded, gameState.isGameFailed, gameState.journal, gameState.inventory, gameState.imageGenerationPermanentlyDisabled, showResumeModal, gameState.isLoadingOutline, gameState.isLoadingWorld, gameState.isLoadingStory, isSelectingGenre, isSelectingPersona, isLoadingExamination]); // apiKeyMissing removed
 
   const handleChoiceSelected = async (choice: Choice) => {
     if (!gameState.currentSegment || !gameState.adventureOutline || !gameState.worldDetails || !gameState.selectedGenre || !gameState.selectedPersona) return;
     
-    // Initial isLoadingStory state is set here for feedback, isLoadingImage is handled by processSuccessfulSegment
     setCurrentLoadingText(getRandomLoadingText(storyLoadingTexts));
     setGameState(prev => ({
       ...prev,
       isLoadingStory: true,
-      isLoadingImage: false, // Will be set by processSuccessfulSegment if needed
+      isLoadingImage: false, 
       error: null,
     }));
 
     addJournalEntry('choice', choice.text);
-
-    if (choice.leadsToFailure) {
-      // If failure, processSuccessfulSegment will still be called but with isFailureScene: true
-      // It will then not attempt to load an image for the failure scene.
-      // No need to set isGameFailed here directly, let the story segment dictate.
-    }
 
     let nextStageIndex = gameState.currentStageIndex;
     if (choice.signalsStageCompletion && !choice.leadsToFailure) {
@@ -467,7 +456,6 @@ Generate the opening story segment.`;
       }
     }
     const finalNextStageIndex = nextStageIndex;
-    // Update currentStageIndex optimistically or after segment load? Let's do it before forming prompt.
     setGameState(prev => ({ ...prev, currentStageIndex: finalNextStageIndex }));
 
 
@@ -525,11 +513,11 @@ The sceneDescription should narrate the consequences (positive or negative) of t
     setGameState(prev => ({
       ...prev,
       isLoadingStory: true,
-      isLoadingImage: false, // Will be set by processSuccessfulSegment
+      isLoadingImage: false, 
       error: null,
       lastRetryInfo: {
         type: 'resend_original',
-        originalPrompt: "custom_action_placeholder", // This will be part of a larger prompt for retry if needed
+        originalPrompt: "custom_action_placeholder", 
         customActionText: actionText
       }
     }));
@@ -638,6 +626,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
         error: null,
         lastRetryInfo: null,
         imageGenerationPermanentlyDisabled: initialLoadedState.imageGenerationPermanentlyDisabled,
+        apiKeyMissing: false, // Reset this as well
       }));
 
       setImageGenerationFeatureEnabled(imageGenerationFeatureEnabled && !initialLoadedState.imageGenerationPermanentlyDisabled);
@@ -645,7 +634,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
       addJournalEntry('system', 'Game resumed from saved state.');
       if (initialLoadedState.imageGenerationPermanentlyDisabled) {
         addJournalEntry('system', 'Image generation was previously disabled due to usage limits and remains off.');
-        setShowImageQuotaNotification(true); // Show notification if resuming into quota disabled state
+        setShowImageQuotaNotification(true); 
       }
       setIsSelectingGenre(false);
       setIsSelectingPersona(false);
@@ -670,7 +659,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
                     ...prev,
                     imageGenerationPermanentlyDisabled: true,
                     isLoadingImage: false,
-                    error: null // Quota error handled by notification, not modal
+                    error: null 
                 }));
                 setImageGenerationFeatureEnabled(false);
                 localStorage.setItem(IMAGE_QUOTA_DISABLED_KEY, 'true');
@@ -698,13 +687,13 @@ The sceneDescription should narrate the consequences (positive or negative) of t
 
     const initialImageEnvVar = process.env.IMAGE_GENERATION_ENABLED?.toLowerCase();
     const envVarDisabled = initialImageEnvVar === 'false' || initialImageEnvVar === 'disabled' || initialImageEnvVar === '0';
-    const stillQuotaDisabled = localStorage.getItem(IMAGE_QUOTA_DISABLED_KEY) === 'true'; // Check persisted quota state
+    const stillQuotaDisabled = localStorage.getItem(IMAGE_QUOTA_DISABLED_KEY) === 'true'; 
 
     setImageGenerationFeatureEnabled(!envVarDisabled && !stillQuotaDisabled);
 
     setGameState(prev => ({
       ...prev,
-      imageGenerationPermanentlyDisabled: stillQuotaDisabled, // Persist this state
+      imageGenerationPermanentlyDisabled: stillQuotaDisabled, 
       selectedGenre: null,
       selectedPersona: null,
       adventureOutline: null,
@@ -716,7 +705,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
       isLoadingStory: false,
       isLoadingImage: false,
       error: null,
-      apiKeyMissing: typeof process.env.API_KEY !== 'string' || process.env.API_KEY === '',
+      apiKeyMissing: false, // Key is server-side
       isGameEnded: false,
       isGameFailed: false,
       journal: [],
@@ -744,17 +733,16 @@ The sceneDescription should narrate the consequences (positive or negative) of t
     setGameState(prev => ({
       ...prev,
       error: null,
-      // Reset loading states based on what is being retried
       isLoadingOutline: originalPrompt === "fetch_outline_action",
       isLoadingWorld: originalPrompt === "fetch_world_action",
       isLoadingStory: type === 'fix_json' || (originalPrompt !== "fetch_outline_action" && originalPrompt !== "fetch_world_action" && originalPrompt !== "examine_action" && originalPrompt !== "generate_image_action"),
-      isLoadingImage: false, // Image retries handled by handleReloadImageAttempt
+      isLoadingImage: false, 
     }));
 
     if (type === 'fix_json' && faultyJsonText) {
       setCurrentLoadingText(getRandomLoadingText(fixJsonLoadingTexts));
-      // isLoadingStory already set true above if applicable
       try {
+        // attemptToFixJson now sends the request to the proxy.
         const fixedSegmentData = await attemptToFixJson(faultyJsonText, originalPrompt);
         await processSuccessfulSegment(fixedSegmentData);
       } catch (fixError) {
@@ -770,29 +758,22 @@ The sceneDescription should narrate the consequences (positive or negative) of t
     } else if (type === 'resend_original') {
       if (originalPrompt === "fetch_outline_action") {
         setCurrentLoadingText(getRandomLoadingText(outlineLoadingTexts));
-        setGameState(prev => ({ ...prev, adventureOutline: null, worldDetails: null, currentSegment: null })); // Reset dependent states
-        // isLoadingOutline already true
-        handlePersonaSelected(gameState.selectedPersona!); // This will trigger outline fetch via useEffect
+        setGameState(prev => ({ ...prev, adventureOutline: null, worldDetails: null, currentSegment: null })); 
+        handlePersonaSelected(gameState.selectedPersona!); 
       } else if (originalPrompt === "fetch_world_action") {
         setCurrentLoadingText(getRandomLoadingText(worldLoadingTexts));
-        setGameState(prev => ({ ...prev, worldDetails: null, currentSegment: null })); // Reset dependent states
-        // isLoadingWorld already true
-        // World fetch will be triggered by useEffect based on isLoadingWorld and adventureOutline
+        setGameState(prev => ({ ...prev, worldDetails: null, currentSegment: null })); 
       } else if (originalPrompt === "examine_action") {
         setCurrentLoadingText(getRandomLoadingText(examinationLoadingTexts));
         await handleExamineSelected();
       } else if (originalPrompt === "generate_image_action") {
-        // This case should now be handled by "Try Reloading Image" button and handleReloadImageAttempt
-        // However, if somehow handleRetry is called for it, we can delegate or log
-        console.warn("handleRetry called for generate_image_action, this should be handled by handleReloadImageAttempt.");
+        console.warn("handleRetry called for generate_image_action, delegating to handleReloadImageAttempt.");
         await handleReloadImageAttempt();
       } else if (customActionText && gameState.currentSegment && gameState.adventureOutline && gameState.worldDetails && gameState.selectedGenre && gameState.selectedPersona) {
         setCurrentLoadingText(getRandomLoadingText(customActionLoadingTexts));
-        // isLoadingStory already true
-        await handleCustomActionSubmit(customActionText); // Pass existing custom action text
-      } else { // General story scene retry
+        await handleCustomActionSubmit(customActionText); 
+      } else { 
         setCurrentLoadingText(getRandomLoadingText(storyLoadingTexts));
-        // isLoadingStory already true
         await loadStoryScene(originalPrompt, true);
       }
     }
@@ -802,8 +783,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
     setGameState(prev => ({
       ...prev,
       error: null,
-      isLoadingImage: false, // Ensure image loading stops
-      // currentSegment imageURL should already be undefined or handled by StoryDisplay
+      isLoadingImage: false, 
     }));
     addJournalEntry('system', 'Continued story without the current scene image.');
   };
@@ -836,7 +816,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
               ...prev,
               imageGenerationPermanentlyDisabled: true,
               isLoadingImage: false,
-              error: null // Quota error handled by notification
+              error: null 
           }));
           setImageGenerationFeatureEnabled(false);
           localStorage.setItem(IMAGE_QUOTA_DISABLED_KEY, 'true');
@@ -851,17 +831,9 @@ The sceneDescription should narrate the consequences (positive or negative) of t
     }
   };
 
-
-  if (gameState.apiKeyMissing && gameState.error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-gray-900 text-red-400">
-        <div className="bg-gray-800 p-8 rounded-lg shadow-xl text-center">
-          <h1 className="font-press-start text-xl sm:text-2xl mb-4">Configuration Error</h1>
-          <p className="text-lg">{gameState.error}</p>
-        </div>
-      </div>
-    );
-  }
+  // Removed the direct API Key Missing error display. Errors from proxy (e.g. if proxy's key is bad)
+  // will be shown in the generic error modal.
+  // if (gameState.apiKeyMissing && gameState.error) { ... } // REMOVED BLOCK
 
   if (showResumeModal && initialLoadedState) {
     return <ResumeModal onResume={handleResumeGame} onRestart={() => handleRestartGame()} />;
@@ -928,7 +900,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
           </button>
         </main>
          <footer className="w-full max-w-5xl mt-12 text-center text-sm text-gray-500">
-            <p>&copy; {new Date().getFullYear()} Forge your Journey. Content generation by Google Gemini.</p>
+            <p>&copy; {new Date().getFullYear()} Forge your Journey. Content generation by Google Gemini, proxied for security.</p>
         </footer>
       </div>
     );
@@ -998,7 +970,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
         </div>
       </header>
 
-      {gameState.error && !gameState.apiKeyMissing && (
+      {gameState.error && ( // Generic error modal, no longer checking !gameState.apiKeyMissing
         <div className="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="error-modal-title">
           <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl text-center max-w-md w-full border border-red-700">
             <h2 id="error-modal-title" className="font-press-start text-xl sm:text-2xl mb-4 text-red-400">An Error Occurred</h2>
@@ -1021,7 +993,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
                     Try Reloading Image
                   </button>
                 </>
-              ) : gameState.lastRetryInfo && (
+              ) : gameState.lastRetryInfo && !gameState.error.includes("API Key configuration error on the server") ? ( // Don't show retry for server API key issues
                 <button
                   onClick={handleRetry}
                   className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-semibold rounded-lg shadow-md transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-yellow-300 focus:ring-opacity-75 transform hover:scale-105 text-lg"
@@ -1029,12 +1001,13 @@ The sceneDescription should narrate the consequences (positive or negative) of t
                 >
                   Retry
                 </button>
-              )}
+              ) : null}
               <button
                 onClick={() => handleRestartGame(true)}
                 className={`px-6 py-3 font-semibold rounded-lg shadow-md transition-all duration-150 ease-in-out focus:outline-none focus:ring-opacity-75 transform hover:scale-105 text-lg
-                            ${(isImageOnlyError || gameState.lastRetryInfo) ? 'bg-gray-600 hover:bg-gray-500 text-white focus:ring-2 focus:ring-gray-400'
-                                              : 'bg-purple-600 hover:bg-purple-500 text-white focus:ring-2 focus:ring-purple-400'}`}
+                            ${(isImageOnlyError || (gameState.lastRetryInfo && !gameState.error.includes("API Key configuration error on the server"))) 
+                                ? 'bg-gray-600 hover:bg-gray-500 text-white focus:ring-2 focus:ring-gray-400'
+                                : 'bg-purple-600 hover:bg-purple-500 text-white focus:ring-2 focus:ring-purple-400'}`}
                 aria-label="Start a new game"
               >
                 Start New Game
@@ -1057,7 +1030,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
             <StoryDisplay
               imageUrl={gameState.currentSegment.imageUrl}
               isLoadingImage={gameState.isLoadingImage && imageGenerationFeatureEnabled && !gameState.imageGenerationPermanentlyDisabled}
-              isLoadingStory={gameState.isLoadingStory && !gameState.currentSegment.sceneDescription} // Only show story loading if description not yet available
+              isLoadingStory={gameState.isLoadingStory && !gameState.currentSegment.sceneDescription} 
               imageGenerationFeatureEnabled={imageGenerationFeatureEnabled}
               imageGenerationPermanentlyDisabled={gameState.imageGenerationPermanentlyDisabled}
             />
@@ -1145,7 +1118,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
       )}
 
       <footer className="w-full max-w-5xl mt-12 text-center text-sm text-gray-500">
-        <p>&copy; {new Date().getFullYear()} Forge your Journey. Content generation by Google Gemini.</p>
+        <p>&copy; {new Date().getFullYear()} Forge your Journey. Content generation by Google Gemini, proxied for security.</p>
       </footer>
     </div>
   );

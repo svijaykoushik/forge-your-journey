@@ -5,10 +5,11 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
         define: {
-            'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-            'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
             'process.env.IMAGE_GENERATION_ENABLED': JSON.stringify(
                 env.IMAGE_GENERATION_ENABLED
+            ),
+            'process.env.PROXY_URL': JSON.stringify(
+                env.PROXY_URL
             ),
         },
         resolve: {
