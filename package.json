@@ -1,29 +1,24 @@
 {
-  "name": "forge-your-journey",
+  "name": "forge-your-journey-monorepo",
+  "version": "0.1.0",
   "private": true,
-  "version": "0.5.0",
-  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
-  },
-  "dependencies": {
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "@google/genai": "^1.0.1",
-    "express": "^5.1.0",
-    "cors": "^2.8.5"
+    "build:server": "npm run build -w server",
+    "start:server": "npm run start -w server",
+    "dev:server": "npm run dev -w server",
+    "build:cleint": "npm run build -w client",
+    "start:client": "npm run preview -w client",
+    "dev:client": "npm run dev -w client"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
-    "@types/react": "^19.1.6",
-    "gh-pages": "^6.3.0",
-    "typescript": "~5.7.2",
-    "vite": "^6.2.0"
+    "typescript": "~5.7.2"
   },
-  "author": "Vijaykoushik, S <svijaykoushik@gmail.com>",
-  "license": "AGPL-3.0-only"
+  "dependencies": {
+    "@google/genai": "^1.0.1"
+  }
 }
