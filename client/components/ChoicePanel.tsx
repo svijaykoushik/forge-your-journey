@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { StorySegment, Choice } from '../types';
 import ChoiceButton from './ChoiceButton';
@@ -7,7 +6,7 @@ import LoadingSpinner from './LoadingSpinner';
 interface ChoicePanelProps {
   currentSegment: StorySegment | null;
   isLoadingStory: boolean;
-  isLoading: boolean; 
+  isLoading: boolean;
   isLoadingExamination: boolean;
   handleChoiceSelected: (choice: Choice) => void;
   handleExamineSelected: () => void;
@@ -23,7 +22,7 @@ const ChoicePanel: React.FC<ChoicePanelProps> = ({
   handleChoiceSelected,
   handleExamineSelected,
   handleCustomActionSubmit,
-  currentLoadingText,
+  currentLoadingText
 }) => {
   const [customActionText, setCustomActionText] = useState('');
 
@@ -39,7 +38,10 @@ const ChoicePanel: React.FC<ChoicePanelProps> = ({
     return (
       <div className="flex flex-col items-center justify-center p-6 bg-gray-800 rounded-lg shadow-xl min-h-[200px]">
         <LoadingSpinner />
-        <p className="mt-3 text-gray-300">{currentLoadingText || (isLoadingStory ? "The story unfolds..." : "Examining...")}</p>
+        <p className="mt-3 text-gray-300">
+          {currentLoadingText ||
+            (isLoadingStory ? 'The story unfolds...' : 'Examining...')}
+        </p>
       </div>
     );
   }
@@ -52,16 +54,20 @@ const ChoicePanel: React.FC<ChoicePanelProps> = ({
     );
   }
 
-  const showPredefinedChoices = currentSegment.choices && currentSegment.choices.length > 0 && !currentSegment.isUserInputCommandOnly;
+  const showPredefinedChoices =
+    currentSegment.choices &&
+    currentSegment.choices.length > 0 &&
+    !currentSegment.isUserInputCommandOnly;
   const showExamineButton = !currentSegment.isUserInputCommandOnly;
-
 
   return (
     <div className="bg-gray-800 p-4 rounded-lg shadow-xl space-y-4">
       <div>
         {showPredefinedChoices && (
           <>
-            <h3 className="font-press-start text-xl mb-3 text-purple-300">Make Your Choice:</h3>
+            <h3 className="font-press-start text-xl mb-3 text-purple-300">
+              Make Your Choice:
+            </h3>
             <div className="grid grid-cols-1 gap-3">
               {currentSegment.choices.map((choice, index) => (
                 <ChoiceButton
@@ -82,16 +88,26 @@ const ChoicePanel: React.FC<ChoicePanelProps> = ({
       </div>
 
       {showExamineButton && (
-         <ChoiceButton
-          choice={{ text: "Examine surroundings", outcomePrompt: "", isExamineAction: true }}
+        <ChoiceButton
+          choice={{
+            text: 'Examine surroundings',
+            outcomePrompt: '',
+            isExamineAction: true
+          }}
           onSelect={handleExamineSelected}
           disabled={isLoading}
           isExamineButton={true}
         />
       )}
-      
-      <form onSubmit={onSubmitCustomAction} className="space-y-2 pt-2 border-t border-gray-700">
-        <label htmlFor="customActionInput" className="block font-semibold text-teal-300 text-base">
+
+      <form
+        onSubmit={onSubmitCustomAction}
+        className="space-y-2 pt-2 border-t border-gray-700"
+      >
+        <label
+          htmlFor="customActionInput"
+          className="block font-semibold text-teal-300 text-base"
+        >
           Or, take a different path:
         </label>
         <textarea

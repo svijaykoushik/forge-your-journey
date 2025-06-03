@@ -8,7 +8,12 @@ interface ChoiceButtonProps {
   isExamineButton?: boolean;
 }
 
-const ChoiceButton: React.FC<ChoiceButtonProps> = ({ choice, onSelect, disabled, isExamineButton }) => {
+const ChoiceButton: React.FC<ChoiceButtonProps> = ({
+  choice,
+  onSelect,
+  disabled,
+  isExamineButton
+}) => {
   const baseClasses = `
     w-full text-left p-4 rounded-lg transition-all duration-150 ease-in-out
     focus:outline-none focus:ring-2 focus:ring-opacity-75
@@ -35,7 +40,11 @@ const ChoiceButton: React.FC<ChoiceButtonProps> = ({ choice, onSelect, disabled,
       aria-label={choice.text}
     >
       <span className="font-medium font-['Alegreya_Sans']">{choice.text}</span>
-      {isExamineButton && <span className="text-xs block opacity-80 font-['Alegreya_Sans']">(Observe more closely)</span>}
+      {isExamineButton && (
+        <span className="text-xs block opacity-80 font-['Alegreya_Sans']">
+          (Observe more closely)
+        </span>
+      )}
     </button>
   );
 };

@@ -6,14 +6,12 @@
     "strict": true,
     "skipLibCheck": true,
     "outDir": "./dist", // Specifies the output directory for compiled JavaScript
-    "rootDir": "./",    // Specifies the root directory of source files
+    "rootDir": "./", // Specifies the root directory of source files
     "moduleResolution": "node",
     "forceConsistentCasingInFileNames": true
   },
   "include": [
     "index.ts" // Or "*.ts" to include all .ts files in the proxy directory
   ],
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": ["node_modules"]
 }
