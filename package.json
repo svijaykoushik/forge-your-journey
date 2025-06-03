@@ -12,13 +12,25 @@
     "dev:server": "npm run dev -w server",
     "build:cleint": "npm run build -w client",
     "start:client": "npm run preview -w client",
-    "dev:client": "npm run dev -w client"
+    "dev:client": "npm run dev -w client",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@eslint/js": "^9.28.0",
     "@types/node": "^22.14.0",
-    "typescript": "~5.7.2"
+    "eslint": "^9.28.0",
+    "eslint-config-prettier": "^10.1.5",
+    "globals": "^16.2.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.0",
+    "prettier": "3.5.3",
+    "typescript": "~5.7.2",
+    "typescript-eslint": "^8.33.1"
   },
   "dependencies": {
     "@google/genai": "^1.0.1"
+  },
+  "lint-staged": {
+    "**/*": "prettier --write --ignore-unknown"
   }
 }
