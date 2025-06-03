@@ -3,12 +3,17 @@ services:
     build:
       context: .
       dockerfile: ./client/Dockerfile
+      args:
+        IMAGE_GENERATION_ENABLED: disabled
+        PROXY_URL: http://localhost:55001
     ports:
-      - "55000:80"
+      - '55000:80'
 
   server:
     build:
       context: .
       dockerfile: ./server/Dockerfile
     ports:
-      - "55001:80"
+      - '55001:80'
+    environment:
+      - API_KEY=PLACE_HOLDER_KEY

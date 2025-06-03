@@ -34,8 +34,10 @@ FROM deps as build
 # and image generation configuration
 # This ARG is scoped to the 'build' stage.
 ARG IMAGE_GENERATION_ENABLED
+ARG PROXY_URL
 
 ENV IMAGE_GENERATION_ENABLED=$IMAGE_GENERATION_ENABLED
+ENV PROXY_URL=$PROXY_URL
 
 COPY package.json package-lock.json ./
 COPY client/package.json ./client/
