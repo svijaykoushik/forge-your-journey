@@ -123,12 +123,6 @@ const App: React.FC = () => {
     useState(false);
 
   useEffect(() => {
-    const imageEnvVar = process.env.IMAGE_GENERATION_ENABLED?.toLowerCase();
-    const envVarDisabled =
-      imageEnvVar === 'false' ||
-      imageEnvVar === 'disabled' ||
-      imageEnvVar === '0';
-
     const storedQuotaDisabled =
       localStorage.getItem(IMAGE_QUOTA_DISABLED_KEY) === 'true';
     setGameState((prev) => ({
@@ -136,7 +130,7 @@ const App: React.FC = () => {
       imageGenerationPermanentlyDisabled: storedQuotaDisabled
     }));
 
-    setImageGenerationFeatureEnabled(!envVarDisabled && !storedQuotaDisabled);
+    setImageGenerationFeatureEnabled(!storedQuotaDisabled);
   }, []);
 
   const addJournalEntry = useCallback(

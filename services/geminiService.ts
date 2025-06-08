@@ -18,6 +18,7 @@ import {
 
 const GENAI_MODEL_NAME = 'gemini-2.5-flash-preview-04-17';
 const IMAGEN_MODEL_NAME = 'imagen-3.0-generate-002';
+const GEMINI_IMAGE_MODEL_NAME = 'gemini-2.0-flash-preview-image-generation';
 
 const PROXY_REQUEST_TIMEOUT = 30000; // 30 seconds for proxy requests
 
@@ -1056,9 +1057,7 @@ Based on this, provide content for the 'examinationText' field. This text should
 
 export const generateImage = async (prompt: string): Promise<string> => {
   const payload = {
-    model: IMAGEN_MODEL_NAME,
-    prompt: prompt,
-    config: { numberOfImages: 1, outputMimeType: 'image/jpeg' }
+    prompt: prompt
   };
 
   try {
@@ -1084,12 +1083,8 @@ export const generateImage = async (prompt: string): Promise<string> => {
 
     const result = await response.json();
 
-    if (
-      result.generatedImages &&
-      result.generatedImages.length > 0 &&
-      result?.generatedImages?.[0]?.image?.imageBytes
-    ) {
-      const base64ImageBytes = result.generatedImages[0].image.imageBytes;
+    if (result.image) {
+      const base64ImageBytes = result.image;
       return `data:image/jpeg;base64,${base64ImageBytes}`;
     } else {
       console.warn(
