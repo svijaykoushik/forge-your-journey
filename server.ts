@@ -7,8 +7,11 @@ import { fileURLToPath } from 'node:url';
 import {
   GenerateContentResponse,
   GenerateImagesResponse,
-  GoogleGenAI
+  GoogleGenAI,
+  Modality
 } from '@google/genai';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -18,6 +21,14 @@ const isProduction = process.env.NODE_ENV === 'production';
 const port = process.env.PORT || 5173;
 const base = process.env.BASE || '/';
 const API_KEY: string | undefined = process.env.API_KEY;
+const IMAGEN_MODEL_NAME = 'imagen-3.0-generate-002';
+const GEMINI_IMAGE_MODEL_NAME = 'gemini-2.0-flash-preview-image-generation';
+const USE_IMAGEN_ENV_VAR = process.env.USE_IMAGEN?.toLowerCase();
+const USE_IMAGEN =
+  USE_IMAGEN_ENV_VAR === 'true' ||
+  USE_IMAGEN_ENV_VAR === 'enabled' ||
+  USE_IMAGEN_ENV_VAR === 'yes' ||
+  USE_IMAGEN_ENV_VAR === '1';
 
 // Cached production assets
 const templateHtml = isProduction
@@ -55,6 +66,26 @@ if (!isProduction) {
   app.use(base, sirv('./dist/client', { extensions: [] }));
 }
 
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"], // Default for everything else
+        scriptSrc: ["'self'", "'unsafe-inline'"], // Allow scripts from self and Tailwind CDN
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], // Allow styles from self, inline, and Tailwind CDN
+        imgSrc: ["'self'", 'data:'], // Allow images from self and data URIs
+        connectSrc: ["'self'"], // For API calls etc.
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'] // For Google Fonts etc.
+        // mediaSrc: ["'self'"],
+        // objectSrc: ["'none'"], // Disallow <object>, <embed> tags
+        // frameSrc: ["'none'"], // Disallow iframes unless explicitly needed
+      }
+    }
+    // Other Helmet options you might want to set:
+    // crossOriginEmbedderPolicy: false, // If you need to embed cross-origin content
+    // crossOriginResourcePolicy: { policy: "cross-origin" }, // If serving cross-origin resources
+  })
+);
 app.use(express.json({ limit: '10mb' }));
 
 interface GenerateContentPayload {
@@ -67,6 +98,10 @@ interface GenerateImagesPayload {
   model: string;
   prompt: string;
   config?: { numberOfImages?: number; outputMimeType?: string };
+}
+
+interface ImageResponse {
+  image: string;
 }
 
 interface ErrorWithMessage {
@@ -124,7 +159,28 @@ const handleProxyError = (
   });
 };
 
-app.post('/api/generate-content', (async (req: Request, res: Response) => {
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per 15 minutes
+  message: 'Too many requests from this IP, please try again after 15 minutes.',
+  statusCode: 429, // 429 Too Many Requests
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false // Disable the `X-RateLimit-*` headers
+});
+
+const genAiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 10, // Limit each IP to 10 requests per minute for this specific endpoint
+  message: 'Too many requests for this resource. Please wait a moment.',
+  statusCode: 429,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+app.post('/api/generate-content', genAiLimiter, (async (
+  req: Request,
+  res: Response
+) => {
   if (!ai) {
     return res.status(503).json({
       error: "Proxy's AI Service is not available (API Key issue)."
@@ -149,23 +205,92 @@ app.post('/api/generate-content', (async (req: Request, res: Response) => {
   }
 }) as RequestHandler);
 
-app.post('/api/generate-images', (async (req: Request, res: Response) => {
+async function generateImageWithImagegen(ai: GoogleGenAI, prompt: string) {
+  const result: GenerateImagesResponse = await ai.models.generateImages({
+    model: IMAGEN_MODEL_NAME,
+    prompt: prompt,
+    config: { numberOfImages: 1, outputMimeType: 'image/jpeg' }
+  });
+
+  if (
+    !result.generatedImages ||
+    !(result.generatedImages.length > 0) ||
+    !result?.generatedImages?.[0]?.image?.imageBytes
+  ) {
+    console.warn(
+      'No image generated or image data is missing (via proxy) for prompt:',
+      prompt,
+      'Result:',
+      result
+    );
+
+    return '';
+  }
+  const base64ImageBytes = result.generatedImages[0].image.imageBytes;
+  return `data:image/jpeg;base64,${base64ImageBytes}`;
+}
+
+async function generateImageWithGemini(ai: GoogleGenAI, prompt: string) {
+  console.log('Prompt for image: ', prompt);
+  const content =
+    'Please generate an image. Your response must include an image based on the following description:\n ' +
+    prompt;
+  console.log('Prompt content: ', content);
+  const response = await ai.models.generateContent({
+    model: GEMINI_IMAGE_MODEL_NAME,
+    contents: content,
+    config: {
+      responseModalities: [Modality.TEXT, Modality.IMAGE]
+    }
+  });
+
+  if (
+    !response.candidates ||
+    !response.candidates.length ||
+    !response?.candidates?.[0]?.content?.parts
+  ) {
+    return '';
+  }
+
+  for (const part of response.candidates[0].content.parts) {
+    if (part.inlineData && part.inlineData.data) {
+      const base64ImageBytes = part.inlineData.data;
+      return `data:image/jpeg;base64,${base64ImageBytes}`;
+    } else if (part.text) {
+      console.warn('No  image, got text: ', part.text);
+      return '';
+    }
+  }
+
+  return '';
+}
+
+app.post('/api/generate-images', genAiLimiter, (async (
+  req: Request,
+  res: Response
+) => {
   if (!ai) {
     return res.status(503).json({
       error: "Proxy's AI Service is not available (API Key issue)."
     });
   }
   try {
-    const { model, prompt, config } = req.body;
-    if (!model || !prompt) {
+    const { prompt } = req.body;
+    if (!prompt) {
       return res.status(400).json({
         error:
           "Proxy: Missing 'model' or 'prompt' in request body for generate-images"
       });
     }
-    const requestPayload = { model, prompt, config };
-    const result: GenerateImagesResponse =
-      await ai.models.generateImages(requestPayload); // Corrected type
+
+    let result: ImageResponse = {
+      image: ''
+    };
+    if (USE_IMAGEN) {
+      result.image = await generateImageWithImagegen(ai, prompt);
+    } else {
+      result.image = await generateImageWithGemini(ai, prompt);
+    }
     res.json(result);
   } catch (error) {
     handleProxyError(res, error, 'generate-images');
@@ -173,7 +298,7 @@ app.post('/api/generate-images', (async (req: Request, res: Response) => {
 }) as RequestHandler);
 
 // Serve HTML
-app.use('*all', async (req, res) => {
+app.use('*all', generalLimiter, async (req, res) => {
   try {
     const url = req.originalUrl.replace(base, '');
 

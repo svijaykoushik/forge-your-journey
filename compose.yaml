@@ -11,9 +11,8 @@ services:
   server:
     build:
       context: .
-      args:
-        - IMAGE_GENERATION_ENABLED=disabled
     environment:
       API_KEY: PLACEP_HOLDER_API
+      USE_IMAGEN: false
     ports:
       - 5173:5173
