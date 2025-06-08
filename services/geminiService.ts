@@ -999,6 +999,7 @@ Current Scene Description (what the player already sees):
 
 Based on this, provide content for the 'examinationText' field. This text should:
 - Elaborate on details already mentioned or hint at things not immediately obvious, drawing from the established World Context.
+- Provide details about the immediate surroundings of the player's current location helping player to map out the place.
 - Reveal subtle clues, interesting lore, or atmospheric details that are consistent with the world's features, history, or magic.
 - Consider the player's persona (${genreSpecificPersonaTitle}) and items they possess for any specific insights they might gain, filtered through their understanding of this world.
 - DO NOT advance the plot or introduce new choices. This is for observation only.
