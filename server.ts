@@ -231,7 +231,6 @@ async function generateImageWithImagegen(ai: GoogleGenAI, prompt: string) {
 }
 
 async function generateImageWithGemini(ai: GoogleGenAI, prompt: string) {
-  console.log('Prompt for image: ', prompt);
   const content =
     'Please generate an image. Your response must include an image based on the following description:\n ' +
     prompt;

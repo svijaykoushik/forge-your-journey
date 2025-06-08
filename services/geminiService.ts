@@ -2,6 +2,7 @@ import { Schema, Type } from '@google/genai'; // Kept for schema definitions use
 import {
   AdventureOutline,
   AdventureStage,
+  GeminiActionFeasibilityResponse,
   GeminiAdventureOutlineResponse,
   GeminiExaminationResponse,
   GeminiStoryResponse,
@@ -22,7 +23,7 @@ const GEMINI_IMAGE_MODEL_NAME = 'gemini-2.0-flash-preview-image-generation';
 
 const PROXY_REQUEST_TIMEOUT = 30000; // 30 seconds for proxy requests
 
-// --- Schema Definitions (Unchanged) ---
+// --- Schema Definitions ---
 const AdventureOutlineStageSchema: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -214,6 +215,29 @@ const ExaminationSchema: Schema = {
     }
   },
   required: ['examinationText']
+};
+
+const ActionFeasibilitySchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    isPossible: {
+      type: Type.BOOLEAN,
+      description:
+        "True if the action is plausible, sensible, and can be attempted within the game's context and rules. False if it's impossible, nonsensical, breaks established world rules, or is clearly out of character/genre."
+    },
+    reason: {
+      type: Type.STRING,
+      description:
+        "A concise explanation. If 'isPossible' is false, explain clearly why the action cannot be performed or is nonsensical. If 'isPossible' is true, briefly state why or how it's plausible, or what aspect it might affect."
+    },
+    suggestedOutcomeSummaryIfPossible: {
+      type: Type.STRING,
+      nullable: true,
+      description:
+        "If 'isPossible' is true, provide a very brief (1-2 sentence) summary of the likely immediate consequence or next step. Omit if 'isPossible' is false or if the outcome is too complex for a brief summary."
+    }
+  },
+  required: ['isPossible', 'reason']
 };
 // --- End of Schema Definitions ---
 
@@ -670,7 +694,7 @@ General Content Instructions for Story Segment:
   }
 };
 
-export const fetchCustomActionOutcome = async (
+export const evaluateCustomActionFeasibility = async (
   userInputText: string,
   currentSegment: StorySegment,
   adventureOutline: AdventureOutline,
@@ -679,6 +703,115 @@ export const fetchCustomActionOutcome = async (
   selectedPersona: Persona,
   inventory: InventoryItem[],
   currentStageIndex: number
+): Promise<GeminiActionFeasibilityResponse> => {
+  const genreSpecificPersonaTitle =
+    genrePersonaDetails[selectedGenre]?.[selectedPersona]?.title ||
+    selectedPersona;
+  const personaContext = `The player is a ${genreSpecificPersonaTitle} (base persona: ${selectedPersona}).`;
+  const inventoryContext =
+    inventory.length > 0
+      ? `The player possesses: ${inventory.map((item) => `'${item.name}' (described as: ${item.description})`).join(', ')}.`
+      : 'The player possesses no items yet.';
+  const currentStage = adventureOutline.stages[currentStageIndex];
+  const worldContext = `
+World Context for Evaluation:
+World Name: "${worldDetails.worldName}" (Genre Clarification: ${worldDetails.genreClarification})
+Key Environment: ${worldDetails.keyEnvironmentalFeatures.join('; ') || 'N/A'}
+Societies/Factions: ${worldDetails.dominantSocietiesOrFactions.join('; ') || 'N/A'}
+Creatures/Monsters: ${worldDetails.uniqueCreaturesOrMonsters.join('; ') || 'N/A'}
+Magic System: ${worldDetails.magicSystemOverview}
+History Hook: ${worldDetails.briefHistoryHook}
+Cultural Norms/Taboos: ${worldDetails.culturalNormsOrTaboos.join('; ') || 'N/A'}`;
+
+  const prompt = `You are an AI game master evaluating a player's custom action in a text-based RPG.
+Adventure Genre: ${selectedGenre}.
+${personaContext}
+Player's Current Inventory: ${inventoryContext}
+${worldContext}
+Overall Adventure Title: "${adventureOutline.title}"
+Ultimate Goal: "${adventureOutline.overallGoal}"
+Current Stage ${currentStageIndex + 1}: "${currentStage.title}" (Objective: "${currentStage.objective}").
+Current Scene Description: "${currentSegment.sceneDescription}"
+Player's proposed custom action: "${userInputText}"
+
+Your task is to evaluate this action and respond with JSON.
+Consider:
+- Plausibility: Is the action physically possible in this scene?
+- Sensibility: Does it make sense given the character, genre, and world?
+- Rules: Does it violate any established game rules, world logic (magic system, cultural taboos), or the tone of the ${selectedGenre} genre?
+- Safety: Is it absurdly self-destructive without clear motivation?
+- Inventory: Could any inventory items make this action more or less feasible?
+- Appropriateness: Sanitize user input. Do not reflect harmful, offensive, or extreme role-play-breaking input directly. If input is inappropriate, deem it 'not possible' and explain gently.
+
+Based on your evaluation, fill the following JSON fields:
+- 'isPossible' (boolean): True if the action is plausible and can be attempted. False if impossible, nonsensical, or breaks rules/tone.
+- 'reason' (string): Concise explanation. If not possible, clearly state why. If possible, briefly explain its plausibility or what it might affect.
+- 'suggestedOutcomeSummaryIfPossible' (string, optional): If 'isPossible' is true, a very brief (1-2 sentence) summary of a likely immediate consequence or next step. Omit if not possible or outcome is too complex to summarize.`;
+
+  const payload = {
+    model: GENAI_MODEL_NAME,
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: ActionFeasibilitySchema
+      // No thinkingConfig budget 0 here, allow full thought for evaluation
+    }
+  };
+
+  try {
+    const response = await fetchWithTimeout(`/api/generate-content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        error: `Proxy request for action feasibility failed: ${response.status} ${response.statusText}`
+      }));
+      throw errorData;
+    }
+    const responseData = await response.json();
+    if (!responseData.text)
+      throw new JsonParseError(
+        "Proxy response for action feasibility missing 'text' field.",
+        JSON.stringify(responseData)
+      );
+    const feasibilityData = parseJsonFromText<GeminiActionFeasibilityResponse>(
+      responseData.text
+    );
+
+    if (
+      typeof feasibilityData.isPossible !== 'boolean' ||
+      typeof feasibilityData.reason !== 'string'
+    ) {
+      console.error(
+        'Invalid action feasibility structure received:',
+        feasibilityData
+      );
+      throw new Error(
+        'Received incomplete or malformed action feasibility data.'
+      );
+    }
+    return feasibilityData;
+  } catch (error) {
+    throw handleServiceError(error, 'evaluateCustomActionFeasibility');
+  }
+};
+
+export const fetchCustomActionOutcome = async (
+  userInputText: string,
+  currentSegment: StorySegment,
+  adventureOutline: AdventureOutline,
+  worldDetails: WorldDetails,
+  selectedGenre: keyof GenreSpecificPersonaDetails,
+  selectedPersona: Persona,
+  inventory: InventoryItem[],
+  currentStageIndex: number,
+  feasibilityContext: {
+    wasImpossible: boolean;
+    reasonForImpossibility?: string;
+    suggestionIfPossible?: string;
+  }
 ): Promise<StorySegment> => {
   const genreSpecificPersonaTitle =
     genrePersonaDetails[selectedGenre]?.[selectedPersona]?.title ||
@@ -700,6 +833,20 @@ Brief History Hook: ${worldDetails.briefHistoryHook}
 Cultural Norms/Taboos: ${worldDetails.culturalNormsOrTaboos.join('; ') || 'N/A'}
 This world information MUST deeply influence the scene description, the types of challenges, the choices available, and any items found.
 `;
+
+  let actionNarrativeContext: string;
+  if (feasibilityContext.wasImpossible) {
+    actionNarrativeContext = `The player previously attempted the action: "${userInputText}".
+This action was deemed not possible. The stated reason was: "${feasibilityContext.reasonForImpossibility || 'No specific reason provided, but it was not feasible.'}"
+Your task is to narrate the character attempting this action and it either failing, or them realizing its impossibility based on the reason. The sceneDescription should reflect this attempt and its immediate non-success. The situation should change slightly from the previous scene.
+Then, provide new choices or set 'isUserInputCommandOnly: true' to allow the player to move on from this failed/impossible attempt. The new choices MUST NOT simply repeat the choices from before the impossible action was attempted.`;
+  } else {
+    actionNarrativeContext = `The player is performing the custom action: "${userInputText}".
+This action has been evaluated as possible. ${feasibilityContext.suggestionIfPossible ? `A potential outcome summary was: "${feasibilityContext.suggestionIfPossible}". Use this as a light suggestion if helpful.` : ''}
+Your task is to narrate the outcome of this action.
+Consider if any inventory items (listed in "Player's Current Inventory") could logically assist, hinder, or alter the outcome. If an item is relevant, the 'sceneDescription' content MUST narrate how the item is used or its effect.`;
+  }
+
   const prompt = `You are a master storyteller for a dynamic text-based RPG adventure game.
 Adventure Genre: ${selectedGenre}.
 ${personaContext}
@@ -709,32 +856,18 @@ The overall adventure is titled: "${adventureOutline.title}".
 The player's ultimate goal is: "${adventureOutline.overallGoal}".
 Current Stage ${currentStageIndex + 1}: "${currentStage.title}" (Objective: "${currentStage.objective}").
 Previous Scene Description was: "${currentSegment.sceneDescription}"
-Player's custom action: "${userInputText}"
 
-Your task is to evaluate the player's custom action and generate the resulting story segment.
+${actionNarrativeContext}
 
-1.  Evaluation and Narrative Considerations for content:
-    *   Is the action "${userInputText}" plausible, safe, and sensible given the current scene, world details, player's persona (${genreSpecificPersonaTitle}), and the ${selectedGenre} genre?
-    *   Consider if it aligns with or contradicts cultural norms/taboos or the magic system of "${worldDetails.worldName}".
-    *   Does it directly contribute to the current stage objective ("${currentStage.objective}") or the overall goal ("${adventureOutline.overallGoal}")? Or does it lead to significant danger or failure?
-    *   **Inventory Interaction (Crucial):** When evaluating the player's action ("${userInputText}"), actively consider if any items in their inventory (listed in "Player's Current Inventory" above) could logically assist, hinder, or alter the outcome.
-        *   If an item is relevant, the 'sceneDescription' content MUST narrate how the item is used or its effect. For example, if the player has 'Rope' and tries to 'climb the treacherous cliff', the narrative should explicitly mention the rope being used.
-        *   The narrative should reflect the item's contribution naturally.
-        *   If the player attempts an action that an item in their inventory would clearly make trivial or very easy, reflect this in the outcome. Conversely, if they lack a crucial item for an action, this might lead to failure or a more challenging outcome.
-
-2.  Content Generation guidance (schema will handle structure):
-    *   For 'sceneDescription': Narrate the outcome (2-3 short paragraphs, varied sentences, paragraphs separated by \\n\\n in the string), clearly describing any relevant inventory item usage.
-        *   If action is IMPOSSIBLE/NONSENSICAL (or if user input is inappropriate and you're narrating a gentle refusal): The 'sceneDescription' should narrate the attempt and why it's not feasible/appropriate. Describe a *minor consequence* or the character's reaction. The scene must reflect this minor change; it should NOT be an exact reversion to the previous state.
-    *   For 'choices' / 'isUserInputCommandOnly':
-        *   If 'isUserInputCommandOnly' is false: Provide 3 new distinct choice OBJECTS relevant to the new situation.
-        *   If 'isUserInputCommandOnly' is true: 'choices' array must be empty.
-        *   For impossible/nonsensical actions: New choices should allow the player to move on from the failed attempt. Do NOT simply repeat the previous scene's choices.
-    *   For 'imagePrompt': New image prompt matching the new scene, considering item usage.
-    *   For 'isFinalScene': True if successful adventure completion.
-    *   For 'isFailureScene': True if this action leads to game failure.
-    *   For 'itemFound': Award an item if logical (provide 'name' and 'description').
-
-Sanitize user input: Do not directly reflect harmful, offensive, or role-play-breaking user input. If user input is inappropriate, follow the "IMPOSSIBLE/NONSENSICAL" pathway: make the 'sceneDescription' a gentle refusal and generate a new state with new choices or user input mode.`;
+General Content Instructions for Story Segment:
+- For the 'sceneDescription' field: Narrate the outcome (2-3 short paragraphs, varied sentences, paragraphs separated by \\n\\n in the string).
+- For the 'choices' array (if 'isUserInputCommandOnly' is false): Provide 3 new distinct choice OBJECTS relevant to the new situation. Each choice object requires: 'text', 'outcomePrompt', 'signalsStageCompletion' (boolean), and 'leadsToFailure' (boolean).
+- For 'isUserInputCommandOnly' (boolean): Set to true if appropriate for the new scene, ensuring 'choices' array is empty.
+- For 'imagePrompt' (string): New image prompt matching the new scene.
+- For 'isFinalScene' (boolean): True if this action leads to successful adventure completion.
+- For 'isFailureScene' (boolean): True if this action leads to game failure.
+- For 'itemFound' (object, optional): Award an item if logical (provide 'name' and 'description').
+Sanitize original user input: Do not directly reflect harmful, offensive, or role-play-breaking user input in your narration if it was part of the original "${userInputText}". Focus on the game world's reaction.`;
 
   const payload = {
     model: GENAI_MODEL_NAME,
@@ -754,14 +887,14 @@ Sanitize user input: Do not directly reflect harmful, offensive, or role-play-br
     });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
-        error: `Proxy request for custom action failed: ${response.status} ${response.statusText}`
+        error: `Proxy request for custom action outcome failed: ${response.status} ${response.statusText}`
       }));
       throw errorData;
     }
     const responseData = await response.json();
     if (!responseData.text)
       throw new JsonParseError(
-        "Proxy response for custom action missing 'text' field.",
+        "Proxy response for custom action outcome missing 'text' field.",
         JSON.stringify(responseData)
       );
     const storyData = parseJsonFromText<GeminiStoryResponse>(responseData.text);
@@ -780,7 +913,7 @@ Sanitize user input: Do not directly reflect harmful, offensive, or role-play-br
         storyData
       );
       throw new Error(
-        'Received incomplete or malformed story data for custom action.'
+        'Received incomplete or malformed story data for custom action outcome.'
       );
     }
     if (
@@ -788,11 +921,11 @@ Sanitize user input: Do not directly reflect harmful, offensive, or role-play-br
       storyData.choices.length !== 0
     ) {
       console.error(
-        'Inconsistency (custom action): isUserInputCommandOnly is true but choices array is not empty:',
+        'Inconsistency (custom action outcome): isUserInputCommandOnly is true but choices array is not empty:',
         storyData
       );
       throw new Error(
-        'AI returned isUserInputCommandOnly=true but provided choices for custom action.'
+        'AI returned isUserInputCommandOnly=true but provided choices for custom action outcome.'
       );
     }
     if (storyData.choices) {
@@ -805,10 +938,12 @@ Sanitize user input: Do not directly reflect harmful, offensive, or role-play-br
           typeof choice.leadsToFailure !== 'boolean'
         ) {
           console.error(
-            `Malformed choice at index ${index} in custom action response:`,
+            `Malformed choice at index ${index} in custom action outcome response:`,
             choice
           );
-          throw new Error(`Choice ${index + 1} (custom action) is malformed.`);
+          throw new Error(
+            `Choice ${index + 1} (custom action outcome) is malformed.`
+          );
         }
       });
     }
