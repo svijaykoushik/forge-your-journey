@@ -71,13 +71,8 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"], // Default for everything else
-        scriptSrc: ["'self'", 'https://cdn.tailwindcss.com', "'unsafe-inline'"], // Allow scripts from self and Tailwind CDN
-        styleSrc: [
-          "'self'",
-          "'unsafe-inline'",
-          'https://cdn.tailwindcss.com',
-          'https://fonts.googleapis.com'
-        ], // Allow styles from self, inline, and Tailwind CDN
+        scriptSrc: ["'self'", "'unsafe-inline'"], // Allow scripts from self and Tailwind CDN
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], // Allow styles from self, inline, and Tailwind CDN
         imgSrc: ["'self'", 'data:'], // Allow images from self and data URIs
         connectSrc: ["'self'"], // For API calls etc.
         fontSrc: ["'self'", 'https://fonts.gstatic.com'] // For Google Fonts etc.
