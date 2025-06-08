@@ -9,6 +9,8 @@ import {
   GenerateImagesResponse,
   GoogleGenAI
 } from '@google/genai';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -55,6 +57,7 @@ if (!isProduction) {
   app.use(base, sirv('./dist/client', { extensions: [] }));
 }
 
+app.use(helmet());
 app.use(express.json({ limit: '10mb' }));
 
 interface GenerateContentPayload {
@@ -124,7 +127,28 @@ const handleProxyError = (
   });
 };
 
-app.post('/api/generate-content', (async (req: Request, res: Response) => {
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per 15 minutes
+  message: 'Too many requests from this IP, please try again after 15 minutes.',
+  statusCode: 429, // 429 Too Many Requests
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false // Disable the `X-RateLimit-*` headers
+});
+
+const genAiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 10, // Limit each IP to 10 requests per minute for this specific endpoint
+  message: 'Too many requests for this resource. Please wait a moment.',
+  statusCode: 429,
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+app.post('/api/generate-content', genAiLimiter, (async (
+  req: Request,
+  res: Response
+) => {
   if (!ai) {
     return res.status(503).json({
       error: "Proxy's AI Service is not available (API Key issue)."
@@ -149,7 +173,10 @@ app.post('/api/generate-content', (async (req: Request, res: Response) => {
   }
 }) as RequestHandler);
 
-app.post('/api/generate-images', (async (req: Request, res: Response) => {
+app.post('/api/generate-images', genAiLimiter, (async (
+  req: Request,
+  res: Response
+) => {
   if (!ai) {
     return res.status(503).json({
       error: "Proxy's AI Service is not available (API Key issue)."
@@ -173,7 +200,7 @@ app.post('/api/generate-images', (async (req: Request, res: Response) => {
 }) as RequestHandler);
 
 // Serve HTML
-app.use('*all', async (req, res) => {
+app.use('*all', generalLimiter, async (req, res) => {
   try {
     const url = req.originalUrl.replace(base, '');
 
