@@ -235,7 +235,6 @@ async function generateImageWithGemini(ai: GoogleGenAI, prompt: string) {
   const content =
     'Please generate an image. Your response must include an image based on the following description:\n ' +
     prompt;
-  console.log('Prompt content: ', content);
   const response = await ai.models.generateContent({
     model: GEMINI_IMAGE_MODEL_NAME,
     contents: content,
@@ -252,17 +251,28 @@ async function generateImageWithGemini(ai: GoogleGenAI, prompt: string) {
     return '';
   }
 
+  let textResponse = '';
+  let imageBase64ImageBytes = '';
   for (const part of response.candidates[0].content.parts) {
     if (part.inlineData && part.inlineData.data) {
-      const base64ImageBytes = part.inlineData.data;
-      return `data:image/jpeg;base64,${base64ImageBytes}`;
+      imageBase64ImageBytes = part.inlineData.data;
     } else if (part.text) {
-      console.warn('No  image, got text: ', part.text);
-      return '';
+      textResponse = part.text;
     }
   }
 
-  return '';
+  if (!imageBase64ImageBytes && textResponse) {
+    console.log(
+      'No image! Text response from %s: %s',
+      GEMINI_IMAGE_MODEL_NAME,
+      textResponse
+    );
+  }
+
+  if (!imageBase64ImageBytes) {
+    return '';
+  }
+  return imageBase64ImageBytes;
 }
 
 app.post('/api/generate-images', genAiLimiter, (async (
