@@ -19,7 +19,6 @@ import {
 const GENAI_MODEL_NAME = 'gemini-2.5-flash-preview-04-17';
 const IMAGEN_MODEL_NAME = 'imagen-3.0-generate-002';
 
-const PROXY_BASE_URL = process.env.PROXY_URL || '';
 const PROXY_REQUEST_TIMEOUT = 30000; // 30 seconds for proxy requests
 
 // --- Schema Definitions (Unchanged) ---
@@ -403,14 +402,11 @@ The tone should be ${genre}.`;
   };
 
   try {
-    const response = await fetchWithTimeout(
-      `${PROXY_BASE_URL}/api/generate-content`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetchWithTimeout(`/api/generate-content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
         error: `Proxy request for outline failed: ${response.status} ${response.statusText}`
@@ -502,14 +498,11 @@ Ensure all fields are filled with creative and relevant information.`;
   };
 
   try {
-    const response = await fetchWithTimeout(
-      `${PROXY_BASE_URL}/api/generate-content`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetchWithTimeout(`/api/generate-content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
         error: `Proxy request for world details failed: ${response.status} ${response.statusText}`
@@ -583,14 +576,11 @@ General Content Instructions for Story Segment:
   };
 
   try {
-    const response = await fetchWithTimeout(
-      `${PROXY_BASE_URL}/api/generate-content`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetchWithTimeout(`/api/generate-content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
         error: `Proxy request for story segment failed: ${response.status} ${response.statusText}`
@@ -756,14 +746,11 @@ Sanitize user input: Do not directly reflect harmful, offensive, or role-play-br
   };
 
   try {
-    const response = await fetchWithTimeout(
-      `${PROXY_BASE_URL}/api/generate-content`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetchWithTimeout(`/api/generate-content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
         error: `Proxy request for custom action failed: ${response.status} ${response.statusText}`
@@ -880,14 +867,11 @@ Please analyze the faulty JSON, correct its structure, and provide ONLY the vali
   };
 
   try {
-    const response = await fetchWithTimeout(
-      `${PROXY_BASE_URL}/api/generate-content`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetchWithTimeout(`/api/generate-content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
         error: `Proxy request for JSON fix failed: ${response.status} ${response.statusText}`
@@ -1030,14 +1014,11 @@ Based on this, provide content for the 'examinationText' field. This text should
   };
 
   try {
-    const response = await fetchWithTimeout(
-      `${PROXY_BASE_URL}/api/generate-content`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetchWithTimeout(`/api/generate-content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
         error: `Proxy request for examination failed: ${response.status} ${response.statusText}`
@@ -1081,14 +1062,11 @@ export const generateImage = async (prompt: string): Promise<string> => {
   };
 
   try {
-    const response = await fetchWithTimeout(
-      `${PROXY_BASE_URL}/api/generate-images`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }
-    );
+    const response = await fetchWithTimeout(`/api/generate-images`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
