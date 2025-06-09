@@ -499,7 +499,7 @@ Player Persona: "${genreSpecificPersonaTitle}" (base archetype: ${persona})
 Adventure Genre: ${genre}
 
 Generate rich and interconnected world details. These details should directly influence the atmosphere, potential encounters, challenges, and items within the adventure.
-The player's persona (${genreSpecificPersonaTitle}) might have unique insights or connections to certain aspects of this world.
+The player's persona (${genreSpecificPersonaTitle}, archetype ${persona}) might have unique insights or connections to certain aspects of this world.
 
 Provide content for the following fields:
 - 'worldName': A unique and evocative name for this game world or region, fitting for a ${genreSpecificPersonaTitle}.
