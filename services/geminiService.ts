@@ -1133,10 +1133,11 @@ Current Scene Description (what the player already sees):
 "${currentSceneDescription}"
 
 Based on this, provide content for the 'examinationText' field. This text should:
-- Elaborate on details already mentioned or hint at things not immediately obvious, drawing from the established World Context.
-- Provide details about the immediate surroundings of the player's current location helping player to map out the place.
-- Reveal subtle clues, interesting lore, or atmospheric details that are consistent with the world's features, history, or magic.
-- Consider the player's persona (${genreSpecificPersonaTitle}) and items they possess for any specific insights they might gain, filtered through their understanding of this world.
+- Elaborate on details already mentioned or hint at things not immediately obvious.
+- Describe the immediate surroundings of the player's current location, providing sensory details that help the player to visually or spatially understand the layout of the area they are in.
+- Reveal subtle clues, interesting lore, or atmospheric details.
+- All details provided (elaborations, surroundings, clues, lore) MUST be consistent with and draw from the established World Context (environment, societies, creatures, magic, history, culture) provided above.
+- Consider the player's persona (${genreSpecificPersonaTitle} -- base archetype: ${persona}) and items they possess for any specific insights they might gain, filtered through their understanding of this world.
 - DO NOT advance the plot or introduce new choices. This is for observation only.
 - Maintain the ${adventureGenre} tone, enriched by the world's specific genre clarification.
 - Be 2-4 sentences long and concise. Employ varied sentence structures.`;
