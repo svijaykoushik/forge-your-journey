@@ -4,14 +4,22 @@ import { ViteDevServer } from 'vite';
 import compression from 'compression';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  GenerateContentResponse,
-  GenerateImagesResponse,
-  GoogleGenAI,
-  Modality
-} from '@google/genai';
+import { GoogleGenAI } from '@google/genai'; // Simplified, other types moved to routers
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+// Import routers
+// import promptsApiRouter from './server/routes/promptsApi.js'; // Removed
+import createAiProxyRouter from './server/routes/aiProxyApi.js';
+import createAdventureApiRouter from './server/routes/adventureApi.js';
+// Types are no longer directly needed here for endpoint handlers
+// import {
+//   GameGenre,
+//   Persona,
+//   AdventureOutline,
+//   WorldDetails,
+//   StorySegment,
+//   InventoryItem
+// } from './types.js'; // .js extension for Node ESM
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -21,14 +29,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const port = process.env.PORT || 5173;
 const base = process.env.BASE || '/';
 const API_KEY: string | undefined = process.env.API_KEY;
-const IMAGEN_MODEL_NAME = 'imagen-3.0-generate-002';
-const GEMINI_IMAGE_MODEL_NAME = 'gemini-2.0-flash-preview-image-generation';
-const USE_IMAGEN_ENV_VAR = process.env.USE_IMAGEN?.toLowerCase();
-const USE_IMAGEN =
-  USE_IMAGEN_ENV_VAR === 'true' ||
-  USE_IMAGEN_ENV_VAR === 'enabled' ||
-  USE_IMAGEN_ENV_VAR === 'yes' ||
-  USE_IMAGEN_ENV_VAR === '1';
+// Model name constants and USE_IMAGEN moved to aiProxyApi.ts
 
 // Cached production assets
 const templateHtml = isProduction
@@ -88,77 +89,9 @@ app.use(
 );
 app.use(express.json({ limit: '10mb' }));
 
-interface GenerateContentPayload {
-  model: string;
-  contents: any;
-  config?: any;
-}
-
-interface GenerateImagesPayload {
-  model: string;
-  prompt: string;
-  config?: { numberOfImages?: number; outputMimeType?: string };
-}
-
-interface ImageResponse {
-  image: string;
-}
-
-interface ErrorWithMessage {
-  message: string;
-  status?: number;
-}
-
-interface ProxyResponseError {
-  error?: string;
-  details?: any;
-}
-
-const handleProxyError = (
-  res: express.Response,
-  error: unknown,
-  context: string
-): void => {
-  console.error(`Error in proxy/${context}:`, error);
-  let statusCode = 500;
-  let clientMessage = `An internal server error occurred in the proxy while handling ${context}.`;
-
-  if (typeof error === 'object' && error !== null) {
-    const err = error as Partial<ErrorWithMessage & ProxyResponseError>;
-
-    if (typeof err.message === 'string') {
-      if (
-        err.message.includes('API key not valid') ||
-        (err.status === 400 && err.message.toLowerCase().includes('api key'))
-      ) {
-        statusCode = 500;
-        clientMessage =
-          'API Key configuration error on the server. Please contact support.';
-        console.error("Proxy server's API Key is invalid or missing.");
-      } else if (
-        err.message.includes('quota') ||
-        err.message.includes('RESOURCE_EXHAUSTED') ||
-        err.status === 429
-      ) {
-        statusCode = 429;
-        clientMessage = `API quota likely exceeded for ${context}. ${err.message}`;
-      } else {
-        clientMessage = err.message;
-        if (err.status && typeof err.status === 'number') {
-          statusCode = err.status;
-        }
-      }
-    } else if (typeof err.error === 'string') {
-      clientMessage = err.error;
-    }
-  }
-
-  res.status(statusCode).json({
-    error: clientMessage,
-    details: error ? error.toString() : 'Unknown error object'
-  });
-};
-
+// Error handlers and genAiLimiter have been moved to server/utils.ts
+// and are used internally by the routers.
+// The generalLimiter is still needed for the catch-all SSR route.
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per 15 minutes
@@ -168,146 +101,17 @@ const generalLimiter = rateLimit({
   legacyHeaders: false // Disable the `X-RateLimit-*` headers
 });
 
-const genAiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 10, // Limit each IP to 10 requests per minute for this specific endpoint
-  message: 'Too many requests for this resource. Please wait a moment.',
-  statusCode: 429,
-  standardHeaders: true,
-  legacyHeaders: false
-});
+// Initialize Routers
+const aiProxyRouter = createAiProxyRouter(ai); // Pass the ai instance
+const adventureApiRouter = createAdventureApiRouter(ai); // Added: Pass the ai instance
 
-app.post('/api/generate-content', genAiLimiter, (async (
-  req: Request,
-  res: Response
-) => {
-  if (!ai) {
-    return res.status(503).json({
-      error: "Proxy's AI Service is not available (API Key issue)."
-    });
-  }
-  try {
-    const { model, contents, config } = req.body;
-    if (!model || !contents) {
-      return res.status(400).json({
-        error:
-          "Proxy: Missing 'model' or 'contents' in request body for generate-content"
-      });
-    }
+// Mount Routers
+// app.use('/api/prompts', promptsApiRouter); // Removed
+app.use('/api/adventure', adventureApiRouter);
+app.use('/api', aiProxyRouter); // Mount the AI proxy API router (generic proxies)
 
-    const requestPayload = { model, contents, config };
-    const result: GenerateContentResponse =
-      await ai.models.generateContent(requestPayload);
-
-    res.json({ text: result.text });
-  } catch (error) {
-    handleProxyError(res, error, 'generate-content');
-  }
-}) as RequestHandler);
-
-async function generateImageWithImagegen(ai: GoogleGenAI, prompt: string) {
-  const result: GenerateImagesResponse = await ai.models.generateImages({
-    model: IMAGEN_MODEL_NAME,
-    prompt: prompt,
-    config: { numberOfImages: 1, outputMimeType: 'image/jpeg' }
-  });
-
-  if (
-    !result.generatedImages ||
-    !(result.generatedImages.length > 0) ||
-    !result?.generatedImages?.[0]?.image?.imageBytes
-  ) {
-    console.warn(
-      'No image generated or image data is missing (via proxy) for prompt:',
-      prompt,
-      'Result:',
-      result
-    );
-
-    return '';
-  }
-  const base64ImageBytes = result.generatedImages[0].image.imageBytes;
-  return `data:image/jpeg;base64,${base64ImageBytes}`;
-}
-
-async function generateImageWithGemini(ai: GoogleGenAI, prompt: string) {
-  const content =
-    'Please generate an image. Your response must include an image based on the following description:\n ' +
-    prompt;
-  const response = await ai.models.generateContent({
-    model: GEMINI_IMAGE_MODEL_NAME,
-    contents: content,
-    config: {
-      responseModalities: [Modality.TEXT, Modality.IMAGE]
-    }
-  });
-
-  if (
-    !response.candidates ||
-    !response.candidates.length ||
-    !response?.candidates?.[0]?.content?.parts
-  ) {
-    return '';
-  }
-
-  let textResponse = '';
-  let imageBase64ImageBytes = '';
-  for (const part of response.candidates[0].content.parts) {
-    if (part.inlineData && part.inlineData.data) {
-      imageBase64ImageBytes = part.inlineData.data;
-    } else if (part.text) {
-      textResponse = part.text;
-    }
-  }
-
-  if (!imageBase64ImageBytes && textResponse) {
-    console.log(
-      'No image! Text response from %s: %s',
-      GEMINI_IMAGE_MODEL_NAME,
-      textResponse
-    );
-  }
-
-  if (!imageBase64ImageBytes) {
-    return '';
-  }
-  return imageBase64ImageBytes;
-}
-
-app.post('/api/generate-images', genAiLimiter, (async (
-  req: Request,
-  res: Response
-) => {
-  if (!ai) {
-    return res.status(503).json({
-      error: "Proxy's AI Service is not available (API Key issue)."
-    });
-  }
-  try {
-    const { prompt } = req.body;
-    if (!prompt) {
-      return res.status(400).json({
-        error:
-          "Proxy: Missing 'model' or 'prompt' in request body for generate-images"
-      });
-    }
-
-    let result: ImageResponse = {
-      image: ''
-    };
-    if (USE_IMAGEN) {
-      result.image = await generateImageWithImagegen(ai, prompt);
-    } else {
-      result.image = await generateImageWithGemini(ai, prompt);
-    }
-    res.json(result);
-  } catch (error) {
-    handleProxyError(res, error, 'generate-images');
-  }
-}) as RequestHandler);
-
-// Serve HTML
-app.use('*all', generalLimiter, async (req, res) => {
+// Serve HTML (catch-all for client-side routing)
+app.use('*', generalLimiter, async (req, res) => { // Changed from *all to *
   try {
     const url = req.originalUrl.replace(base, '');
 
