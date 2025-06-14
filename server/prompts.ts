@@ -5,8 +5,9 @@ import {
   WorldDetails,
   GenreSpecificPersonaDetails,
   InventoryItem,
-  GameGenre // Renamed from keyof GenreSpecificPersonaDetails for clarity
-} from '../types';
+  GameGenre, // Renamed from keyof GenreSpecificPersonaDetails for clarity
+  AdventureStage // Added for typing map callback
+} from '../types.js'; // Added .js extension
 
 // Copied from types.ts
 export const genrePersonaDetails: GenreSpecificPersonaDetails = {
@@ -179,7 +180,7 @@ export const generateWorldDetailsPrompt = (
 Adventure Title: "${adventureOutline.title}"
 Overall Goal: "${adventureOutline.overallGoal}"
 Adventure Stages:
-${adventureOutline.stages.map((s, i) => `  Stage ${i + 1}: "${s.title}" - ${s.description} (Objective: ${s.objective})`).join('\n')}
+${adventureOutline.stages.map((s: AdventureStage, i: number) => `  Stage ${i + 1}: "${s.title}" - ${s.description} (Objective: ${s.objective})`).join('\n')}
 Player Persona: "${genreSpecificPersonaTitle}" (base archetype: ${persona})
 Adventure Genre: ${genre}
 

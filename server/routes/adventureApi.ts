@@ -13,7 +13,7 @@ import {
   GeminiStoryResponse,
   GeminiExaminationResponse,
   JsonParseError,
-  AdventureStage // Added for validation
+  AdventureStage
 } from '../../types.js';
 import {
   generateAdventureOutlinePrompt,
@@ -26,7 +26,7 @@ import {
 } from '../../server/prompts.js';
 import {
   genAiLimiter,
-  handleProxyError, // Using this as the main error handler for AI calls
+  handleProxyError,
   parseJsonFromText,
   slugify,
   generateImageWithImagegen,
@@ -46,40 +46,36 @@ export default function createAdventureApiRouter(ai: GoogleGenAI | undefined) {
   const router = express.Router();
 
   if (!ai) {
-    // If AI is not available, all routes in this router will be disabled.
-    router.use((req, res, next) => {
+    router.use((req, res, next) => { // next is not used here, but it's fine for a use() middleware
       res.status(503).json({ error: "AI Service is not available (API Key issue)." });
+      // No explicit return needed as this is a middleware that ends the response
     });
     return router;
   }
 
-  // POST /api/adventure/outline
-  router.post('/outline', genAiLimiter, async (req: Request, res: Response) => {
+  router.post('/outline', genAiLimiter, async (req: Request, res: Response): Promise<void> => {
     try {
-      const { genre, persona } = req.body as { genre?: GameGenre; persona?: Persona };
-      if (!genre || !persona) {
-        return res.status(400).json({ error: 'Missing required parameters: genre, persona' });
-      }
+      const body = req.body as { genre?: GameGenre; persona?: Persona };
+      const { genre, persona } = body; // Destructure after casting
 
+      if (!genre || !persona) {
+        res.status(400).json({ error: 'Missing required parameters: genre, persona' });
+        return;
+      }
+      // genre and persona are now narrowed to GameGenre and Persona
       const prompt = generateAdventureOutlinePrompt(genre, persona);
       const result = await ai.models.generateContent({
-        model: GENAI_MODEL_NAME,
-        contents: prompt,
+        model: GENAI_MODEL_NAME, contents: prompt,
         config: { responseMimeType: 'application/json', responseSchema: AdventureOutlineSchema }
       });
-
       const outlineData = parseJsonFromText<GeminiAdventureOutlineResponse>(result.text);
-
-      // Validation (copied from client services/geminiService.ts)
-      if (
-        !outlineData || !outlineData.title || !outlineData.overallGoal || !outlineData.stages ||
-        !Array.isArray(outlineData.stages) || outlineData.stages.length !== 3
-      ) {
-        throw new JsonParseError("Received incomplete adventure outline. Essential fields missing or 'stages' is not a valid 3-element array.", JSON.stringify(outlineData));
+      if (!outlineData || !outlineData.title || !outlineData.overallGoal || !outlineData.stages ||
+          !Array.isArray(outlineData.stages) || outlineData.stages.length !== 3) {
+        throw new JsonParseError("Received incomplete adventure outline.", JSON.stringify(outlineData));
       }
       outlineData.stages.forEach((stage: AdventureStage, index: number) => {
         if (!stage || typeof stage.title !== 'string' || typeof stage.description !== 'string' || typeof stage.objective !== 'string') {
-          throw new JsonParseError(`Stage ${index + 1} in the adventure outline is malformed.`, JSON.stringify(stage));
+          throw new JsonParseError(`Stage ${index + 1} is malformed.`, JSON.stringify(stage));
         }
       });
       res.json(outlineData);
@@ -88,22 +84,21 @@ export default function createAdventureApiRouter(ai: GoogleGenAI | undefined) {
     }
   });
 
-  // POST /api/adventure/world-details
-  router.post('/world-details', genAiLimiter, async (req: Request, res: Response) => {
+  router.post('/world-details', genAiLimiter, async (req: Request, res: Response): Promise<void> => {
     try {
-      const { adventureOutline, persona, genre } = req.body as { adventureOutline?: AdventureOutline; persona?: Persona; genre?: GameGenre; };
+      const body = req.body as { adventureOutline?: AdventureOutline; persona?: Persona; genre?: GameGenre; };
+      const { adventureOutline, persona, genre } = body;
+
       if (!adventureOutline || !persona || !genre) {
-        return res.status(400).json({ error: 'Missing required parameters: adventureOutline, persona, genre' });
+        res.status(400).json({ error: 'Missing required parameters: adventureOutline, persona, genre' });
+        return;
       }
       const prompt = generateWorldDetailsPrompt(adventureOutline, persona, genre);
       const result = await ai.models.generateContent({
-        model: GENAI_MODEL_NAME,
-        contents: prompt,
+        model: GENAI_MODEL_NAME, contents: prompt,
         config: { responseMimeType: 'application/json', responseSchema: WorldDetailsSchema }
       });
       const worldData = parseJsonFromText<GeminiWorldDetailsResponse>(result.text);
-
-      // Validation
       if (!worldData || typeof worldData.worldName !== 'string' || worldData.worldName.trim() === '' ||
           !Array.isArray(worldData.keyEnvironmentalFeatures) || !Array.isArray(worldData.dominantSocietiesOrFactions) ||
           !Array.isArray(worldData.uniqueCreaturesOrMonsters) || typeof worldData.magicSystemOverview !== 'string' ||
@@ -116,56 +111,47 @@ export default function createAdventureApiRouter(ai: GoogleGenAI | undefined) {
     }
   });
 
-  // POST /api/adventure/story-segment
-  router.post('/story-segment', genAiLimiter, async (req: Request, res: Response) => {
+  router.post('/story-segment', genAiLimiter, async (req: Request, res: Response): Promise<void> => {
     try {
-      const { fullPrompt, isInitialScene } = req.body as { fullPrompt?: string; isInitialScene?: boolean };
+      const body = req.body as { fullPrompt?: string; isInitialScene?: boolean };
+      const { fullPrompt, isInitialScene } = body;
+
       if (fullPrompt === undefined) {
-        return res.status(400).json({ error: 'Missing required parameter: fullPrompt' });
+        res.status(400).json({ error: 'Missing required parameter: fullPrompt' });
+        return;
       }
-      const augmentedPrompt = generateStorySegmentPrompt(fullPrompt, isInitialScene);
+      const currentFullPrompt: string = fullPrompt; // Explicitly typed for clarity after check
+
+      const augmentedPrompt = generateStorySegmentPrompt(currentFullPrompt, isInitialScene);
       const result = await ai.models.generateContent({
-        model: GENAI_MODEL_NAME,
-        contents: augmentedPrompt,
+        model: GENAI_MODEL_NAME, contents: augmentedPrompt,
         config: { responseMimeType: 'application/json', responseSchema: StorySegmentSchema }
       });
       const storyData = parseJsonFromText<GeminiStoryResponse>(result.text);
-
-      // Validation
       if (!storyData || typeof storyData.sceneDescription !== 'string' || !Array.isArray(storyData.choices) ||
           typeof storyData.imagePrompt !== 'string' || typeof storyData.isFinalScene !== 'boolean' ||
           typeof storyData.isFailureScene !== 'boolean' || typeof storyData.isUserInputCommandOnly !== 'boolean') {
-        throw new JsonParseError('Received incomplete or malformed story data.', JSON.stringify(storyData));
+        throw new JsonParseError('Received incomplete story data.', JSON.stringify(storyData));
       }
-      if (storyData.isUserInputCommandOnly === true && storyData.choices.length !== 0) {
-        throw new JsonParseError('AI returned isUserInputCommandOnly=true but provided choices.', JSON.stringify(storyData));
+      if (storyData.isUserInputCommandOnly && storyData.choices.length !== 0) {
+        throw new JsonParseError('isUserInputCommandOnly is true but choices not empty.', JSON.stringify(storyData));
       }
-      if (storyData.choices) {
-        storyData.choices.forEach((choice, index) => {
+      storyData.choices.forEach((choice, index) => {
           if (!choice || typeof choice.text !== 'string' || typeof choice.outcomePrompt !== 'string' ||
               typeof choice.signalsStageCompletion !== 'boolean' || typeof choice.leadsToFailure !== 'boolean') {
             throw new JsonParseError(`Choice ${index + 1} is malformed.`, JSON.stringify(choice));
           }
-        });
-      }
-
+      });
       let finalItemFound: InventoryItem | undefined = undefined;
-      if (storyData.itemFound && storyData.itemFound.name && storyData.itemFound.description) {
+      if (storyData.itemFound && typeof storyData.itemFound.name === 'string' && typeof storyData.itemFound.description === 'string') {
         finalItemFound = {
-            id: slugify(storyData.itemFound.name),
-            name: storyData.itemFound.name,
-            description: storyData.itemFound.description,
+            id: slugify(storyData.itemFound.name), name: storyData.itemFound.name, description: storyData.itemFound.description,
         };
       }
-
       const responseSegment: StorySegment = {
-        sceneDescription: storyData.sceneDescription,
-        choices: storyData.choices || [],
-        imagePrompt: storyData.imagePrompt,
-        isFinalScene: storyData.isFinalScene,
-        isFailureScene: storyData.isFailureScene,
-        isUserInputCommandOnly: storyData.isUserInputCommandOnly,
-        itemFound: finalItemFound,
+        sceneDescription: storyData.sceneDescription, choices: storyData.choices || [], imagePrompt: storyData.imagePrompt,
+        isFinalScene: storyData.isFinalScene, isFailureScene: storyData.isFailureScene,
+        isUserInputCommandOnly: storyData.isUserInputCommandOnly, itemFound: finalItemFound,
       };
       res.json(responseSegment);
     } catch (error) {
@@ -173,28 +159,28 @@ export default function createAdventureApiRouter(ai: GoogleGenAI | undefined) {
     }
   });
 
-  // POST /api/adventure/evaluate-action
-  router.post('/evaluate-action', genAiLimiter, async (req: Request, res: Response) => {
+  router.post('/evaluate-action', genAiLimiter, async (req: Request, res: Response): Promise<void> => {
     try {
-      const params = req.body as {
-        userInputText?: string; currentSegment?: StorySegment; adventureOutline?: AdventureOutline;
-        worldDetails?: WorldDetails; selectedGenre?: GameGenre; selectedPersona?: Persona;
-        inventory?: InventoryItem[]; currentStageIndex?: number;
-      };
-      if (!params.userInputText || !params.currentSegment || !params.adventureOutline || !params.worldDetails ||
-          !params.selectedGenre || !params.selectedPersona || params.inventory === undefined || params.currentStageIndex === undefined) {
-        return res.status(400).json({ error: 'Missing one or more required parameters for evaluate-action' });
+      const { userInputText, currentSegment, adventureOutline, worldDetails, selectedGenre, selectedPersona, inventory, currentStageIndex } =
+        req.body as {
+          userInputText?: string; currentSegment?: StorySegment; adventureOutline?: AdventureOutline;
+          worldDetails?: WorldDetails; selectedGenre?: GameGenre; selectedPersona?: Persona;
+          inventory?: InventoryItem[]; currentStageIndex?: number;
+        };
+      if (userInputText === undefined || !currentSegment || !adventureOutline || !worldDetails ||
+          !selectedGenre || !selectedPersona || inventory === undefined || currentStageIndex === undefined) {
+        res.status(400).json({ error: 'Missing one or more required parameters for evaluate-action' });
+        return;
       }
-      const prompt = generateActionFeasibilityPrompt(params.userInputText, params.currentSegment, params.adventureOutline, params.worldDetails, params.selectedGenre, params.selectedPersona, params.inventory, params.currentStageIndex);
+      // All parameters are now narrowed after the check
+      const prompt = generateActionFeasibilityPrompt(userInputText, currentSegment, adventureOutline, worldDetails, selectedGenre, selectedPersona, inventory, currentStageIndex);
       const result = await ai.models.generateContent({
-        model: GENAI_MODEL_NAME,
-        contents: prompt,
+        model: GENAI_MODEL_NAME, contents: prompt,
         config: { responseMimeType: 'application/json', responseSchema: ActionFeasibilitySchema }
       });
       const feasibilityData = parseJsonFromText<GeminiActionFeasibilityResponse>(result.text);
-
       if (typeof feasibilityData.isPossible !== 'boolean' || typeof feasibilityData.reason !== 'string') {
-        throw new JsonParseError('Received incomplete or malformed action feasibility data.', JSON.stringify(feasibilityData));
+        throw new JsonParseError('Received incomplete action feasibility data.', JSON.stringify(feasibilityData));
       }
       res.json(feasibilityData);
     } catch (error) {
@@ -202,50 +188,43 @@ export default function createAdventureApiRouter(ai: GoogleGenAI | undefined) {
     }
   });
 
-  // POST /api/adventure/custom-action-outcome
-  router.post('/custom-action-outcome', genAiLimiter, async (req: Request, res: Response) => {
+  router.post('/custom-action-outcome', genAiLimiter, async (req: Request, res: Response): Promise<void> => {
     try {
-      const params = req.body as {
-        userInputText?: string; currentSegment?: StorySegment; adventureOutline?: AdventureOutline;
-        worldDetails?: WorldDetails; selectedGenre?: GameGenre; selectedPersona?: Persona;
-        inventory?: InventoryItem[]; currentStageIndex?: number;
-        feasibilityContext?: { wasImpossible: boolean; reasonForImpossibility?: string; suggestionIfPossible?: string; };
-      };
-      if (!params.userInputText || !params.currentSegment || !params.adventureOutline || !params.worldDetails ||
-          !params.selectedGenre || !params.selectedPersona || params.inventory === undefined ||
-          params.currentStageIndex === undefined || !params.feasibilityContext) {
-        return res.status(400).json({ error: 'Missing one or more required parameters for custom-action-outcome' });
+      const {userInputText, currentSegment, adventureOutline, worldDetails, selectedGenre, selectedPersona, inventory, currentStageIndex, feasibilityContext } =
+        req.body as {
+          userInputText?: string; currentSegment?: StorySegment; adventureOutline?: AdventureOutline;
+          worldDetails?: WorldDetails; selectedGenre?: GameGenre; selectedPersona?: Persona;
+          inventory?: InventoryItem[]; currentStageIndex?: number;
+          feasibilityContext?: { wasImpossible: boolean; reasonForImpossibility?: string; suggestionIfPossible?: string; };
+        };
+      if (userInputText === undefined || !currentSegment || !adventureOutline || !worldDetails ||
+          !selectedGenre || !selectedPersona || inventory === undefined ||
+          currentStageIndex === undefined || !feasibilityContext) {
+        res.status(400).json({ error: 'Missing one or more required parameters for custom-action-outcome' });
+        return;
       }
-      const prompt = generateCustomActionOutcomePrompt(params.userInputText, params.currentSegment, params.adventureOutline, params.worldDetails, params.selectedGenre, params.selectedPersona, params.inventory, params.currentStageIndex, params.feasibilityContext);
+      // All parameters are now narrowed
+      const prompt = generateCustomActionOutcomePrompt(userInputText, currentSegment, adventureOutline, worldDetails, selectedGenre, selectedPersona, inventory, currentStageIndex, feasibilityContext);
       const result = await ai.models.generateContent({
-        model: GENAI_MODEL_NAME,
-        contents: prompt,
+        model: GENAI_MODEL_NAME, contents: prompt,
         config: { responseMimeType: 'application/json', responseSchema: StorySegmentSchema }
       });
       const storyData = parseJsonFromText<GeminiStoryResponse>(result.text);
-      // Validation (copied from /story-segment)
       if (!storyData || typeof storyData.sceneDescription !== 'string' || !Array.isArray(storyData.choices) ||
           typeof storyData.imagePrompt !== 'string' || typeof storyData.isFinalScene !== 'boolean' ||
           typeof storyData.isFailureScene !== 'boolean' || typeof storyData.isUserInputCommandOnly !== 'boolean') {
-        throw new JsonParseError('Received incomplete or malformed story data for custom action.', JSON.stringify(storyData));
+        throw new JsonParseError('Received incomplete story data for custom action.', JSON.stringify(storyData));
       }
-      // ... (rest of validation as in /story-segment)
-       let finalItemFound: InventoryItem | undefined = undefined;
-      if (storyData.itemFound && storyData.itemFound.name && storyData.itemFound.description) {
+      let finalItemFound: InventoryItem | undefined = undefined;
+      if (storyData.itemFound && typeof storyData.itemFound.name === 'string' && typeof storyData.itemFound.description === 'string') {
         finalItemFound = {
-            id: slugify(storyData.itemFound.name),
-            name: storyData.itemFound.name,
-            description: storyData.itemFound.description,
+            id: slugify(storyData.itemFound.name), name: storyData.itemFound.name, description: storyData.itemFound.description,
         };
       }
       const responseSegment: StorySegment = {
-        sceneDescription: storyData.sceneDescription,
-        choices: storyData.choices || [],
-        imagePrompt: storyData.imagePrompt,
-        isFinalScene: storyData.isFinalScene,
-        isFailureScene: storyData.isFailureScene,
-        isUserInputCommandOnly: storyData.isUserInputCommandOnly,
-        itemFound: finalItemFound,
+        sceneDescription: storyData.sceneDescription, choices: storyData.choices || [], imagePrompt: storyData.imagePrompt,
+        isFinalScene: storyData.isFinalScene, isFailureScene: storyData.isFailureScene,
+        isUserInputCommandOnly: storyData.isUserInputCommandOnly, itemFound: finalItemFound,
       };
       res.json(responseSegment);
     } catch (error) {
@@ -253,43 +232,35 @@ export default function createAdventureApiRouter(ai: GoogleGenAI | undefined) {
     }
   });
 
-  // POST /api/adventure/fix-json
-  router.post('/fix-json', genAiLimiter, async (req: Request, res: Response) => {
+  router.post('/fix-json', genAiLimiter, async (req: Request, res: Response): Promise<void> => {
     try {
       const { faultyJsonText, originalPromptContext } = req.body as { faultyJsonText?: string; originalPromptContext?: string; };
       if (faultyJsonText === undefined || originalPromptContext === undefined) {
-        return res.status(400).json({ error: 'Missing required parameters: faultyJsonText, originalPromptContext' });
+        res.status(400).json({ error: 'Missing required parameters: faultyJsonText, originalPromptContext' });
+        return;
       }
+      // Types are now narrowed
       const fixPrompt = generateAttemptToFixJsonPrompt(faultyJsonText, originalPromptContext);
       const result = await ai.models.generateContent({
-        model: GENAI_MODEL_NAME, // Using the main model for fixing JSON
-        contents: fixPrompt,
-        config: { responseMimeType: 'application/json' } // No schema for fix, as AI is producing based on instruction
+        model: GENAI_MODEL_NAME, contents: fixPrompt,
+        config: { responseMimeType: 'application/json' }
       });
-      const storyData = parseJsonFromText<GeminiStoryResponse>(result.text, true); // isFixAttempt = true
-      // Validation (copied from /story-segment)
+      const storyData = parseJsonFromText<GeminiStoryResponse>(result.text, true);
        if (!storyData || typeof storyData.sceneDescription !== 'string' || !Array.isArray(storyData.choices) ||
           typeof storyData.imagePrompt !== 'string' || typeof storyData.isFinalScene !== 'boolean' ||
           typeof storyData.isFailureScene !== 'boolean' || typeof storyData.isUserInputCommandOnly !== 'boolean') {
-        throw new JsonParseError('Received incomplete or malformed story data after fix attempt.', JSON.stringify(storyData));
+        throw new JsonParseError('Received incomplete story data after fix attempt.', JSON.stringify(storyData));
       }
-      // ... (rest of validation as in /story-segment)
       let finalItemFound: InventoryItem | undefined = undefined;
-      if (storyData.itemFound && storyData.itemFound.name && storyData.itemFound.description) {
+      if (storyData.itemFound && typeof storyData.itemFound.name === 'string' && typeof storyData.itemFound.description === 'string') {
         finalItemFound = {
-            id: slugify(storyData.itemFound.name),
-            name: storyData.itemFound.name,
-            description: storyData.itemFound.description,
+            id: slugify(storyData.itemFound.name), name: storyData.itemFound.name, description: storyData.itemFound.description,
         };
       }
        const responseSegment: StorySegment = {
-        sceneDescription: storyData.sceneDescription,
-        choices: storyData.choices || [],
-        imagePrompt: storyData.imagePrompt,
-        isFinalScene: storyData.isFinalScene,
-        isFailureScene: storyData.isFailureScene,
-        isUserInputCommandOnly: storyData.isUserInputCommandOnly,
-        itemFound: finalItemFound,
+        sceneDescription: storyData.sceneDescription, choices: storyData.choices || [], imagePrompt: storyData.imagePrompt,
+        isFinalScene: storyData.isFinalScene, isFailureScene: storyData.isFailureScene,
+        isUserInputCommandOnly: storyData.isUserInputCommandOnly, itemFound: finalItemFound,
       };
       res.json(responseSegment);
     } catch (error) {
@@ -297,28 +268,28 @@ export default function createAdventureApiRouter(ai: GoogleGenAI | undefined) {
     }
   });
 
-  // POST /api/adventure/scene-examination
-  router.post('/scene-examination', genAiLimiter, async (req: Request, res: Response) => {
+  router.post('/scene-examination', genAiLimiter, async (req: Request, res: Response): Promise<void> => {
     try {
-      const params = req.body as {
-        currentSceneDescription?: string; adventureGenre?: GameGenre; adventureOutline?: AdventureOutline;
-        worldDetails?: WorldDetails; currentStageTitle?: string; currentStageObjective?: string;
-        persona?: Persona; inventory?: InventoryItem[];
-      };
-      if (!params.currentSceneDescription || !params.adventureGenre || !params.adventureOutline || !params.worldDetails ||
-          !params.currentStageTitle || !params.currentStageObjective || !params.persona || params.inventory === undefined) {
-        return res.status(400).json({ error: 'Missing one or more required parameters for scene-examination' });
+      const { currentSceneDescription, adventureGenre, adventureOutline, worldDetails, currentStageTitle, currentStageObjective, persona, inventory } =
+        req.body as {
+          currentSceneDescription?: string; adventureGenre?: GameGenre; adventureOutline?: AdventureOutline;
+          worldDetails?: WorldDetails; currentStageTitle?: string; currentStageObjective?: string;
+          persona?: Persona; inventory?: InventoryItem[];
+        };
+      if (currentSceneDescription === undefined || !adventureGenre || !adventureOutline || !worldDetails ||
+          currentStageTitle === undefined || currentStageObjective === undefined || !persona || inventory === undefined) {
+        res.status(400).json({ error: 'Missing one or more required parameters for scene-examination' });
+        return;
       }
-      const prompt = generateSceneExaminationPrompt(params.currentSceneDescription, params.adventureGenre, params.adventureOutline, params.worldDetails, params.currentStageTitle, params.currentStageObjective, params.persona, params.inventory);
+      // Types are now narrowed
+      const prompt = generateSceneExaminationPrompt(currentSceneDescription, adventureGenre, adventureOutline, worldDetails, currentStageTitle, currentStageObjective, persona, inventory);
       const result = await ai.models.generateContent({
-        model: GENAI_MODEL_NAME,
-        contents: prompt,
+        model: GENAI_MODEL_NAME, contents: prompt,
         config: { responseMimeType: 'application/json', responseSchema: ExaminationSchema }
       });
       const examinationData = parseJsonFromText<GeminiExaminationResponse>(result.text);
-
       if (!examinationData || typeof examinationData.examinationText !== 'string' || examinationData.examinationText.trim() === '') {
-        throw new JsonParseError("Received incomplete or malformed examination data. 'examinationText' field is missing or empty.", JSON.stringify(examinationData));
+        throw new JsonParseError("Received incomplete examination data.", JSON.stringify(examinationData));
       }
       res.json(examinationData);
     } catch (error) {
@@ -326,28 +297,24 @@ export default function createAdventureApiRouter(ai: GoogleGenAI | undefined) {
     }
   });
 
-  // POST /api/adventure/generate-image
-  router.post('/generate-image', genAiLimiter, async (req: Request, res: Response) => {
+  router.post('/generate-image', genAiLimiter, async (req: Request, res: Response): Promise<void> => {
     try {
-        const { prompt } = req.body as { prompt?: string };
-        if (!prompt) {
-            return res.status(400).json({ error: "Missing required parameter: prompt" });
+        const { prompt: promptBody } = req.body as { prompt?: string };
+        if (promptBody === undefined) {
+            res.status(400).json({ error: "Missing required parameter: prompt" });
+            return;
         }
-
+        const currentPromptBody: string = promptBody; // Narrowed type
         let imageUrl = '';
         if (USE_IMAGEN) {
-            imageUrl = await generateImageWithImagegen(ai, prompt);
+            imageUrl = await generateImageWithImagegen(ai, currentPromptBody);
         } else {
-            imageUrl = await generateImageWithGemini(ai, prompt);
+            imageUrl = await generateImageWithGemini(ai, currentPromptBody);
         }
-
         if (!imageUrl) {
-          // Log specificall if image string is empty but no error was thrown by generators
-          console.warn(`Image generation for prompt "${prompt}" resulted in an empty URL/string.`);
-          // Depending on desired behavior, either return an error or an empty image string
-          // For now, let's align with previous aiProxyApi and return empty string in ImageResponse shape
+          console.warn(`Image generation for prompt "${currentPromptBody}" resulted in an empty URL/string.`);
         }
-        res.json({ image: imageUrl }); // Client expects { image: "data:image/jpeg;base64,..." } or { image: "" }
+        res.json({ image: imageUrl });
     } catch (error) {
         handleProxyError(res, error, 'adventure/generate-image');
     }

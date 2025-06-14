@@ -5,18 +5,6 @@ import * as utils from '../../utils';
 import { GoogleGenAI } from '@google/genai';
 import { JsonParseError, WorldDetails, AdventureOutline, GameGenre, Persona, StorySegment, InventoryItem, GeminiActionFeasibilityResponse, GeminiExaminationResponse } from '../../../types';
 
-// Mock express.json specifically, keep other express functionalities (like Router)
-const mockExpressJsonMiddleware = jest.fn((req, res, next) => next());
-jest.mock('express', () => {
-  const originalExpress = jest.requireActual('express');
-  return {
-    ...originalExpress,
-    json: () => mockExpressJsonMiddleware, // Return a mock middleware
-    Router: originalExpress.Router, // Ensure Router is not mocked or is correctly mocked if needed
-  };
-});
-
-
 // Mock dependencies
 jest.mock('../../prompts');
 
@@ -41,7 +29,7 @@ const mockGenerateImages = jest.fn();
 
 jest.mock('@google/genai', () => {
   return {
-    GoogleGenAI: jest.fn().mockImplementation(() => ({
+    GoogleGenAI: jest.fn().mockImplementation((options?: any) => ({ // Accept options or be no-arg
       models: {
         generateContent: mockGenerateContent,
         generateImages: mockGenerateImages,
@@ -55,13 +43,14 @@ jest.mock('@google/genai', () => {
 
 
 describe('server/routes/adventureApi.ts', () => {
-  let app: express.Express; // Will be a real express app instance
+  let app: express.Express;
   let adventureApiRouter: Router;
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
   let mockNext: NextFunction;
 
-  const aiInstance = new GoogleGenAI('test-api-key');
+  // Use the mocked GoogleGenAI. The options passed are for type-correctness if checked.
+  const aiInstance = new GoogleGenAI({ apiKey: 'test-api-key' });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -75,11 +64,9 @@ describe('server/routes/adventureApi.ts', () => {
     });
     mockedSlugify.mockImplementation((text) => text.toLowerCase().replace(/\s+/g, '-'));
 
-    // Use the actual express for app, but express.json() is mocked.
-    app = jest.requireActual('express')(); // Get a fresh express app
     adventureApiRouter = createAdventureApiRouter(aiInstance);
-
-    app.use(express.json()); // This will now use our mockExpressJsonMiddleware
+    app = express();
+    app.use(express.json());
     app.use('/api/adventure', adventureApiRouter);
 
     mockReq = { body: {} };

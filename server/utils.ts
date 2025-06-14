@@ -1,7 +1,7 @@
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import { GoogleGenAI, GenerateImagesResponse, Modality } from '@google/genai'; // Added for image gen functions
-import { JsonParseError } from '../../types.js'; // Adjusted path for JsonParseError
+import { GoogleGenAI, GenerateImagesResponse, Modality } from '@google/genai';
+import { JsonParseError } from '../types.js'; // Corrected path for JsonParseError
 
 // AI Model Names and Configuration
 export const GENAI_MODEL_NAME = 'gemini-2.5-flash-preview-04-17'; // From geminiService.ts
