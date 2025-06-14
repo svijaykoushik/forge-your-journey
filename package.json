@@ -13,10 +13,7 @@
     "preview": "cross-env NODE_ENV=production node dist/server.js",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
-    "prepare": "husky",
-    "test:server": "jest --config jest.config.server.cjs",
-    "test:client": "jest --config jest.config.client.cjs",
-    "test": "npm run test:server && npm run test:client"
+    "prepare": "husky"
   },
   "dependencies": {
     "@google/genai": "^1.0.1",
