@@ -35,15 +35,15 @@ Follow these instructions to get your own instance of Forge your Journey running
     If you've downloaded this as a ZIP, extract it. Otherwise, clone the repository:
 
     ```bash
-    git clone <repository-url>
-    cd <repository-directory>
+    git clone https://github.com/svijaykoushik/forge-your-journey
+    cd forge-your-journey
     ```
 
 2.  **Install Dependencies:**
     Open your terminal in the project's root directory and run the following command to install all the necessary packages:
 
     ```bash
-    npm install
+    npm ci
     ```
 
 3.  **Set Up Environment Variables:**
@@ -53,21 +53,51 @@ Follow these instructions to get your own instance of Forge your Journey running
     - Open `.env.local` and add the following content:
 
       ```env
-      GEMINI_API_KEY=YOUR_GEMINI_API_KEY_HERE
-      IMAGE_GENERATION_ENABLED=disabled
+      API_KEY=YOUR_GEMINI_API_KEY_HERE
+      USE_IMAGEN=disabled
       ```
 
     - **Replace `YOUR_GEMINI_API_KEY_HERE`** with your actual Google Gemini API key.
-    - **`IMAGE_GENERATION_ENABLED`**:
+    - **`USE_IMAGEN`**:
       - Set to `enabled` if you have Imagen access and wish to use AI-generated images.
-      - Set to `disabled` to run the game without image generation.
+      - Set to `disabled` to run the game with images generated with Gemini.
 
 4.  **Run the Application:**
     Once the dependencies are installed and your environment variables are set, start the development server:
     ```bash
     npm run dev
     ```
-    This will typically start the application on `http://localhost:3000` (or another port if specified in your project configuration). Open this URL in your web browser to begin your journey!
+    This will typically start the application on `http://localhost:5173` (or another port if specified in your project configuration). Open this URL in your web browser to begin your journey!
+
+## Run with Docker
+
+1. **Using Docker compose**
+
+Create a basic compose file
+
+```yaml
+services:
+  forge-your-journey:
+    container_name: forge-your-journey
+    image: ghcr.io/svijaykoushik/forge-your-journey:v1.0.0
+    environment:
+      API_KEY: ${API_KEY}
+      USE_IMAGEN: ${USE_IMAGEN}
+    ports:
+      - 5173:5173
+```
+
+and run
+
+```bash
+docker compose --env-file ./my_app.env up -d
+```
+
+2. **Using Docker cli**
+
+```bash
+docker run -d --name forge-your-journey -p 5173:5173 --env-file ./my_app.env ghcr.io/svijaykoushik/forge-your-journey:v1.0.0
+```
 
 ## Contributing
 
