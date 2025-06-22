@@ -1,4 +1,4 @@
-import { ErrorResponse, ExceptionDetails } from './error-response';
+import { ErrorResponse, ExceptionDetails } from './error-response.js';
 
 interface ErrorWithMessage {
   message: string;
