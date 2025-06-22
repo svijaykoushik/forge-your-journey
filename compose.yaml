@@ -12,7 +12,7 @@ services:
     build:
       context: .
     environment:
-      API_KEY: PLACEP_HOLDER_API
-      USE_IMAGEN: false
+      API_KEY: ${API_KEY}
+      USE_IMAGEN: ${USE_IMAGEN}
     ports:
       - 5173:5173
