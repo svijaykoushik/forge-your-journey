@@ -14,13 +14,13 @@ export function validate(schemas: Schemas): RequestHandler {
   return (async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (schemas.body) {
-        console.log(
-          '[DEBUG] Validating body %s of %s',
-          JSON.stringify(req.body),
-          req.path
-        );
+        // console.log(
+        //   '[DEBUG] Validating body %s of %s',
+        //   JSON.stringify(req.body),
+        //   req.path
+        // );
         req.body = await schemas.body.parseAsync(req.body);
-        console.log('[DEBUG] Validation complete for  %s', req.path);
+        // console.log('[DEBUG] Validation complete for  %s', req.path);
 
         next();
       }

@@ -152,73 +152,41 @@ app.use(routeErrorHandler);
 // Initialize api error handler
 app.use(apiErrorHandler);
 
+function printRoutes(stack: any[], indent = '') {
+  stack.forEach((layer: any) => {
+    if (layer.route) {
+      // This layer is a route
+      const route = layer.route;
+      const methods = Object.keys(route.methods)
+        .filter((method) => route.methods[method])
+        .map((method) => method.toUpperCase())
+        .join(', ');
+      console.log(`${indent}Path: ${route.path}, Methods: ${methods}`);
+    } else if (layer.name === 'router' && layer.handle.stack) {
+      // This layer is an Express router
+      const routerPath = layer.regexp?.source;
+      // .replace(/\\\//g, '/')
+      // .replace(
+      //   /^\/\^|(?:\)\/\(\?:\/\(\?\!\)\)\/\?\)\)\/\?\$|\/\?\)\)\/\?$/g,
+      //   ''
+      // )
+      // .replace(/\(\?:\/\(\?\!\)\)|\/\?\$|^\/\^/g, '');
+
+      console.log(`${indent}Router mounted at: ${routerPath || '/'}`); // Display the path where the router is mounted
+      printRoutes(layer.handle.stack, indent + '  '); // Recursively call for the router's stack
+    } else if (layer.handle.stack && layer.path) {
+      // This handles cases where a router might be mounted without a specific name 'router',
+      // but still has a stack and a path (e.g., middleware chains that might contain routes)
+      console.log(`${indent}Middleware/Router mounted at: ${layer.path}`);
+      printRoutes(layer.handle.stack, indent + '  ');
+    }
+  });
+}
+
 // Start http server
 app.listen(port, () => {
   console.log(`Server started at http://localhost:${port}`);
 
-  // // Function to print all routes
-  // function printRoutes(stack: any) {
-  //   console.log('Registered Routes:');
-  //   stack?.forEach((layer: any) => {
-  //     if (layer.route) {
-  //       // Check if the layer is a route
-  //       const route = layer.route;
-  //       const methods = Object.keys(route.methods).filter(
-  //         (method) => route.methods[method]
-  //       );
-  //       console.log(
-  //         `  Path: ${route.path}, Methods: ${methods.join(', ').toUpperCase()}`
-  //       );
-  //     } else if (layer.name === 'router' && layer.handle.stack) {
-  //       // Handle Express Routers
-  //       // This handles nested routers if you have them
-  //       console.log(`  Router Mounted at: ${layer.regexp}`); // This might not be the exact path, but indicates a router
-  //       layer.handle.stack.forEach((subLayer: any) => {
-  //         if (subLayer.route) {
-  //           const route = subLayer.route;
-  //           const methods = Object.keys(route.methods).filter(
-  //             (method) => route.methods[method]
-  //           );
-  //           console.log(
-  //             `    Sub-Path: ${route.path}, Methods: ${methods.join(', ').toUpperCase()}`
-  //           );
-  //         }
-  //       });
-  //     }
-  //   });
-  // }
-
-  function printRoutes(stack: any[], indent = '') {
-    stack.forEach((layer: any) => {
-      if (layer.route) {
-        // This layer is a route
-        const route = layer.route;
-        const methods = Object.keys(route.methods)
-          .filter((method) => route.methods[method])
-          .map((method) => method.toUpperCase())
-          .join(', ');
-        console.log(`${indent}Path: ${route.path}, Methods: ${methods}`);
-      } else if (layer.name === 'router' && layer.handle.stack) {
-        // This layer is an Express router
-        const routerPath = layer.regexp?.source;
-        // .replace(/\\\//g, '/')
-        // .replace(
-        //   /^\/\^|(?:\)\/\(\?:\/\(\?\!\)\)\/\?\)\)\/\?\$|\/\?\)\)\/\?$/g,
-        //   ''
-        // )
-        // .replace(/\(\?:\/\(\?\!\)\)|\/\?\$|^\/\^/g, '');
-
-        console.log(`${indent}Router mounted at: ${routerPath || '/'}`); // Display the path where the router is mounted
-        printRoutes(layer.handle.stack, indent + '  '); // Recursively call for the router's stack
-      } else if (layer.handle.stack && layer.path) {
-        // This handles cases where a router might be mounted without a specific name 'router',
-        // but still has a stack and a path (e.g., middleware chains that might contain routes)
-        console.log(`${indent}Middleware/Router mounted at: ${layer.path}`);
-        printRoutes(layer.handle.stack, indent + '  ');
-      }
-    });
-  }
-
   // Call the function to print routes
-  printRoutes(app.router.stack);
+  // printRoutes(app.router.stack);
 });
