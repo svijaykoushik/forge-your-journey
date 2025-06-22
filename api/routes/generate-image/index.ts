@@ -4,7 +4,13 @@ import {
   GoogleGenAI,
   Modality
 } from '@google/genai';
-import { Request, RequestHandler, Response, Router } from 'express';
+import {
+  NextFunction,
+  Request,
+  RequestHandler,
+  Response,
+  Router
+} from 'express';
 import { ai } from '../../ai/constants.js';
 import { handleProxyError } from '../../errors/proxy-error.js';
 import { genAiLimiter } from '../../middlewares/rate-limiter.js';
@@ -89,7 +95,11 @@ async function generateImageWithGemini(ai: GoogleGenAI, prompt: string) {
   return imageBase64ImageBytes;
 }
 
-router.post('/', genAiLimiter, (async (req: Request, res: Response) => {
+router.post('/', genAiLimiter, (async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   if (!ai) {
     return res.status(503).json({
       error: "Proxy's AI Service is not available (API Key issue)."
@@ -114,6 +124,6 @@ router.post('/', genAiLimiter, (async (req: Request, res: Response) => {
     }
     res.json(result);
   } catch (error) {
-    handleProxyError(res, error, 'generate-images');
+    next(handleProxyError(error, 'generate-images'));
   }
 }) as RequestHandler);

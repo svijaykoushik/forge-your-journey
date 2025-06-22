@@ -22,6 +22,7 @@ import { UnhandledError } from '../../../errors/unhandled-error.js';
 import { validate } from '../../../middlewares/validate.js';
 import { SuccessResponse } from '../../../success-response.js';
 import { sceneExamiationPayloadSchema } from '../../../validation/schemas.js';
+import { handleProxyError } from '../../../errors/proxy-error.js';
 
 export const router = Router();
 
@@ -59,12 +60,8 @@ router.post(
           text: outline
         })
       );
-    } catch (e) {
-      if (e instanceof ErrorResponse) {
-        next(e);
-      } else {
-        next(new UnhandledError(e as any));
-      }
+    } catch (error) {
+      next(handleProxyError(error, 'scene-examination'));
     }
   }) as RequestHandler
 );

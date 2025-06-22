@@ -21,6 +21,7 @@ import {
 } from '../../../errors/error-response.js';
 import { UnhandledError } from '../../../errors/unhandled-error.js';
 import { SuccessResponse } from '../../../success-response.js';
+import { handleProxyError } from '../../../errors/proxy-error.js';
 
 export const router = Router();
 
@@ -61,12 +62,8 @@ router.post('/', (async (req: Request, res: Response, next: NextFunction) => {
         text: outline
       })
     );
-  } catch (e) {
-    if (e instanceof ErrorResponse) {
-      next(e);
-    } else {
-      next(new UnhandledError(e as any));
-    }
+  } catch (error) {
+    next(handleProxyError(error, 'world-details'));
   }
 }) as RequestHandler);
 

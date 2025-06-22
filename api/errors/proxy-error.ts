@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { ErrorResponse, ExceptionDetails } from './error-response';
 
 interface ErrorWithMessage {
   message: string;
@@ -11,10 +11,9 @@ interface ProxyResponseError {
 }
 
 export const handleProxyError = (
-  res: Response,
   error: unknown,
   context: string
-): void => {
+): ErrorResponse => {
   console.error(`Error in proxy/${context}:`, error);
   let statusCode = 500;
   let clientMessage = `An internal server error occurred in the proxy while handling ${context}.`;
@@ -49,8 +48,11 @@ export const handleProxyError = (
     }
   }
 
-  res.status(statusCode).json({
-    error: clientMessage,
-    details: error ? error.toString() : 'Unknown error object'
-  });
+  return new ErrorResponse(
+    statusCode,
+    new ExceptionDetails(
+      clientMessage,
+      error ? error.toString() : 'Unknown error object'
+    )
+  );
 };
