@@ -1,17 +1,20 @@
-import fs from 'node:fs/promises';
-import express, { Request, RequestHandler, Response } from 'express';
-import { ViteDevServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
 import compression from 'compression';
+import express, { RequestHandler } from 'express';
+import helmet from 'helmet';
+import fs from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ViteDevServer } from 'vite';
 import {
-  GenerateContentResponse,
-  GenerateImagesResponse,
-  GoogleGenAI,
-  Modality
-} from '@google/genai';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+  apiErrorHandler,
+  routeErrorHandler
+} from './api/middlewares/error-middlewares.js';
+import {
+  genAiLimiter,
+  generalLimiter
+} from './api/middlewares/rate-limiter.js';
+import { router as apiRouter } from './api/routes/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -104,198 +107,8 @@ interface ImageResponse {
   image: string;
 }
 
-interface ErrorWithMessage {
-  message: string;
-  status?: number;
-}
-
-interface ProxyResponseError {
-  error?: string;
-  details?: any;
-}
-
-const handleProxyError = (
-  res: express.Response,
-  error: unknown,
-  context: string
-): void => {
-  console.error(`Error in proxy/${context}:`, error);
-  let statusCode = 500;
-  let clientMessage = `An internal server error occurred in the proxy while handling ${context}.`;
-
-  if (typeof error === 'object' && error !== null) {
-    const err = error as Partial<ErrorWithMessage & ProxyResponseError>;
-
-    if (typeof err.message === 'string') {
-      if (
-        err.message.includes('API key not valid') ||
-        (err.status === 400 && err.message.toLowerCase().includes('api key'))
-      ) {
-        statusCode = 500;
-        clientMessage =
-          'API Key configuration error on the server. Please contact support.';
-        console.error("Proxy server's API Key is invalid or missing.");
-      } else if (
-        err.message.includes('quota') ||
-        err.message.includes('RESOURCE_EXHAUSTED') ||
-        err.status === 429
-      ) {
-        statusCode = 429;
-        clientMessage = `API quota likely exceeded for ${context}. ${err.message}`;
-      } else {
-        clientMessage = err.message;
-        if (err.status && typeof err.status === 'number') {
-          statusCode = err.status;
-        }
-      }
-    } else if (typeof err.error === 'string') {
-      clientMessage = err.error;
-    }
-  }
-
-  res.status(statusCode).json({
-    error: clientMessage,
-    details: error ? error.toString() : 'Unknown error object'
-  });
-};
-
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per 15 minutes
-  message: 'Too many requests from this IP, please try again after 15 minutes.',
-  statusCode: 429, // 429 Too Many Requests
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false // Disable the `X-RateLimit-*` headers
-});
-
-const genAiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 10, // Limit each IP to 10 requests per minute for this specific endpoint
-  message: 'Too many requests for this resource. Please wait a moment.',
-  statusCode: 429,
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-app.post('/api/generate-content', genAiLimiter, (async (
-  req: Request,
-  res: Response
-) => {
-  if (!ai) {
-    return res.status(503).json({
-      error: "Proxy's AI Service is not available (API Key issue)."
-    });
-  }
-  try {
-    const { model, contents, config } = req.body;
-    if (!model || !contents) {
-      return res.status(400).json({
-        error:
-          "Proxy: Missing 'model' or 'contents' in request body for generate-content"
-      });
-    }
-
-    const requestPayload = { model, contents, config };
-    const result: GenerateContentResponse =
-      await ai.models.generateContent(requestPayload);
-
-    res.json({ text: result.text });
-  } catch (error) {
-    handleProxyError(res, error, 'generate-content');
-  }
-}) as RequestHandler);
-
-async function generateImageWithImagegen(ai: GoogleGenAI, prompt: string) {
-  const result: GenerateImagesResponse = await ai.models.generateImages({
-    model: IMAGEN_MODEL_NAME,
-    prompt: prompt,
-    config: { numberOfImages: 1, outputMimeType: 'image/jpeg' }
-  });
-
-  if (
-    !result.generatedImages ||
-    !(result.generatedImages.length > 0) ||
-    !result?.generatedImages?.[0]?.image?.imageBytes
-  ) {
-    console.warn(
-      'No image generated or image data is missing (via proxy) for prompt:',
-      prompt,
-      'Result:',
-      result
-    );
-
-    return '';
-  }
-  const base64ImageBytes = result.generatedImages[0].image.imageBytes;
-  return `data:image/jpeg;base64,${base64ImageBytes}`;
-}
-
-async function generateImageWithGemini(ai: GoogleGenAI, prompt: string) {
-  console.log('Prompt for image: ', prompt);
-  const content =
-    'Please generate an image. Your response must include an image based on the following description:\n ' +
-    prompt;
-  console.log('Prompt content: ', content);
-  const response = await ai.models.generateContent({
-    model: GEMINI_IMAGE_MODEL_NAME,
-    contents: content,
-    config: {
-      responseModalities: [Modality.TEXT, Modality.IMAGE]
-    }
-  });
-
-  if (
-    !response.candidates ||
-    !response.candidates.length ||
-    !response?.candidates?.[0]?.content?.parts
-  ) {
-    return '';
-  }
-
-  for (const part of response.candidates[0].content.parts) {
-    if (part.inlineData && part.inlineData.data) {
-      const base64ImageBytes = part.inlineData.data;
-      return `data:image/jpeg;base64,${base64ImageBytes}`;
-    } else if (part.text) {
-      console.warn('No  image, got text: ', part.text);
-      return '';
-    }
-  }
-
-  return '';
-}
-
-app.post('/api/generate-images', genAiLimiter, (async (
-  req: Request,
-  res: Response
-) => {
-  if (!ai) {
-    return res.status(503).json({
-      error: "Proxy's AI Service is not available (API Key issue)."
-    });
-  }
-  try {
-    const { prompt } = req.body;
-    if (!prompt) {
-      return res.status(400).json({
-        error:
-          "Proxy: Missing 'model' or 'prompt' in request body for generate-images"
-      });
-    }
-
-    let result: ImageResponse = {
-      image: ''
-    };
-    if (USE_IMAGEN) {
-      result.image = await generateImageWithImagegen(ai, prompt);
-    } else {
-      result.image = await generateImageWithGemini(ai, prompt);
-    }
-    res.json(result);
-  } catch (error) {
-    handleProxyError(res, error, 'generate-images');
-  }
-}) as RequestHandler);
+// attach api routes
+app.use('/api', genAiLimiter, apiRouter);
 
 // Serve HTML
 app.use('*all', generalLimiter, async (req, res) => {
@@ -333,7 +146,47 @@ app.use('*all', generalLimiter, async (req, res) => {
   }
 });
 
+// Initialize route error handler
+app.use(routeErrorHandler);
+
+// Initialize api error handler
+app.use(apiErrorHandler);
+
+function printRoutes(stack: any[], indent = '') {
+  stack.forEach((layer: any) => {
+    if (layer.route) {
+      // This layer is a route
+      const route = layer.route;
+      const methods = Object.keys(route.methods)
+        .filter((method) => route.methods[method])
+        .map((method) => method.toUpperCase())
+        .join(', ');
+      console.log(`${indent}Path: ${route.path}, Methods: ${methods}`);
+    } else if (layer.name === 'router' && layer.handle.stack) {
+      // This layer is an Express router
+      const routerPath = layer.regexp?.source;
+      // .replace(/\\\//g, '/')
+      // .replace(
+      //   /^\/\^|(?:\)\/\(\?:\/\(\?\!\)\)\/\?\)\)\/\?\$|\/\?\)\)\/\?$/g,
+      //   ''
+      // )
+      // .replace(/\(\?:\/\(\?\!\)\)|\/\?\$|^\/\^/g, '');
+
+      console.log(`${indent}Router mounted at: ${routerPath || '/'}`); // Display the path where the router is mounted
+      printRoutes(layer.handle.stack, indent + '  '); // Recursively call for the router's stack
+    } else if (layer.handle.stack && layer.path) {
+      // This handles cases where a router might be mounted without a specific name 'router',
+      // but still has a stack and a path (e.g., middleware chains that might contain routes)
+      console.log(`${indent}Middleware/Router mounted at: ${layer.path}`);
+      printRoutes(layer.handle.stack, indent + '  ');
+    }
+  });
+}
+
 // Start http server
 app.listen(port, () => {
   console.log(`Server started at http://localhost:${port}`);
+
+  // Call the function to print routes
+  // printRoutes(app.router.stack);
 });

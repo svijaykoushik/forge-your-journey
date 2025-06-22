@@ -226,7 +226,8 @@ export interface JournalEntry {
     | 'world_generated'
     | 'genre_selected'
     | 'persona_selected'
-    | 'action_impossible';
+    | 'action_impossible'
+    | 'action_evaluation';
   content: string;
   timestamp: string;
 }
@@ -259,7 +260,7 @@ export interface GameState {
   currentStageIndex: number;
   isLoadingOutline: boolean;
   isLoadingWorld: boolean;
-  isLoadingStory: boolean;
+  isLoadingStory: boolean; // Will cover both evaluation and outcome generation for custom actions
   isLoadingImage: boolean;
   error: string | null;
   apiKeyMissing: boolean;
@@ -306,6 +307,12 @@ export interface GeminiWorldDetailsResponse extends WorldDetails {}
 
 export interface GeminiExaminationResponse {
   examinationText: string;
+}
+
+export interface GeminiActionFeasibilityResponse {
+  isPossible: boolean;
+  reason: string;
+  suggestedOutcomeSummaryIfPossible?: string;
 }
 
 export class JsonParseError extends Error {

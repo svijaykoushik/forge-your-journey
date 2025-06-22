@@ -2,6 +2,7 @@ import { Schema, Type } from '@google/genai'; // Kept for schema definitions use
 import {
   AdventureOutline,
   AdventureStage,
+  GeminiActionFeasibilityResponse,
   GeminiAdventureOutlineResponse,
   GeminiExaminationResponse,
   GeminiStoryResponse,
@@ -22,7 +23,7 @@ const GEMINI_IMAGE_MODEL_NAME = 'gemini-2.0-flash-preview-image-generation';
 
 const PROXY_REQUEST_TIMEOUT = 30000; // 30 seconds for proxy requests
 
-// --- Schema Definitions (Unchanged) ---
+// --- Schema Definitions ---
 const AdventureOutlineStageSchema: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -215,6 +216,29 @@ const ExaminationSchema: Schema = {
   },
   required: ['examinationText']
 };
+
+const ActionFeasibilitySchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    isPossible: {
+      type: Type.BOOLEAN,
+      description:
+        "True if the action is plausible, sensible, and can be attempted within the game's context and rules. False if it's impossible, nonsensical, breaks established world rules, or is clearly out of character/genre."
+    },
+    reason: {
+      type: Type.STRING,
+      description:
+        "A concise explanation. If 'isPossible' is false, explain clearly why the action cannot be performed or is nonsensical. If 'isPossible' is true, briefly state why or how it's plausible, or what aspect it might affect."
+    },
+    suggestedOutcomeSummaryIfPossible: {
+      type: Type.STRING,
+      nullable: true,
+      description:
+        "If 'isPossible' is true, provide a very brief (1-2 sentence) summary of the likely immediate consequence or next step. Omit if 'isPossible' is false or if the outcome is too complex for a brief summary."
+    }
+  },
+  required: ['isPossible', 'reason']
+};
 // --- End of Schema Definitions ---
 
 const slugify = (text: string): string => {
@@ -374,36 +398,13 @@ export const fetchAdventureOutline = async (
   genre: keyof GenreSpecificPersonaDetails,
   persona: Persona
 ): Promise<AdventureOutline> => {
-  const genreSpecificPersonaTitle =
-    genrePersonaDetails[genre]?.[persona]?.title || persona;
-  const prompt = `You are a master storyteller and game designer. Generate a compelling adventure outline for a text-based RPG.
-The genre is: ${genre}.
-The player's chosen persona is "${genreSpecificPersonaTitle}" (base archetype: ${persona}). This persona choice should subtly influence the themes or initial hook of the adventure if appropriate for the genre.
-The outline should have a clear narrative arc with a distinct beginning, rising action, climax, and resolution.
-The adventure should consist of exactly 3 main stages or acts.
-
-For the 'title' field: Provide a captivating title for the adventure, reflecting the ${genre} genre and possibly hinting at the ${genreSpecificPersonaTitle}'s journey.
-For the 'overallGoal' field: Provide a concise description of the ultimate goal the player (as ${genreSpecificPersonaTitle}) is trying to achieve. Example: "To find and destroy the ancient artifact known as the 'Heart of Shadows' to save the village of Oakhaven from eternal darkness."
-For the 'stages' array (which should contain 3 stage objects):
-  For each stage object:
-    - 'title': A title for the stage (e.g., The Shadowed Summons).
-    - 'description': A brief overview of what happens in this stage.
-    - 'objective': The player's main objective to complete this stage.
-
-Ensure the stage descriptions and objectives logically progress the player towards the overallGoal.
-The tone should be ${genre}.`;
-
   const payload = {
-    model: GENAI_MODEL_NAME,
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: AdventureOutlineSchema
-    }
+    genre,
+    persona
   };
 
   try {
-    const response = await fetchWithTimeout(`/api/generate-content`, {
+    const response = await fetchWithTimeout(`/api/adventure/outline`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -464,42 +465,14 @@ export const fetchWorldDetails = async (
   persona: Persona,
   genre: keyof GenreSpecificPersonaDetails
 ): Promise<WorldDetails> => {
-  const genreSpecificPersonaTitle =
-    genrePersonaDetails[genre]?.[persona]?.title || persona;
-  const prompt = `You are a world-building AI. Based on the provided adventure outline, player persona, and genre, generate detailed world information.
-Adventure Title: "${adventureOutline.title}"
-Overall Goal: "${adventureOutline.overallGoal}"
-Adventure Stages:
-${adventureOutline.stages.map((s, i) => `  Stage ${i + 1}: "${s.title}" - ${s.description} (Objective: ${s.objective})`).join('\n')}
-Player Persona: "${genreSpecificPersonaTitle}" (base archetype: ${persona})
-Adventure Genre: ${genre}
-
-Generate rich and interconnected world details. These details should directly influence the atmosphere, potential encounters, challenges, and items within the adventure.
-The player's persona (${genreSpecificPersonaTitle}) might have unique insights or connections to certain aspects of this world.
-
-Provide content for the following fields:
-- 'worldName': A unique and evocative name for this game world or region, fitting for a ${genreSpecificPersonaTitle}.
-- 'genreClarification': A more specific clarification of the genre, possibly blending sub-genres (e.g., "High fantasy with elements of cosmic horror" or "Dark fantasy survival in a post-magical apocalypse").
-- 'keyEnvironmentalFeatures' (array of strings): List 2-3 distinct and striking environmental features or geographical oddities. Each feature should be a string. Example values: "A constantly shifting crystal desert", "Floating islands wreathed in perpetual storms", "A forest where trees whisper prophecies, sometimes containing \\"forbidden truths\\"."
-- 'dominantSocietiesOrFactions' (array of strings): Describe 1-2 major societies, factions, or sentient species. Each description is a string. e.g., "The reclusive Sky-Elves of Mount Cinder, known for their powerful elemental magic and distrust of outsiders."
-- 'uniqueCreaturesOrMonsters' (array of strings): Name and briefly describe 1-2 unique creatures or monsters. Each description is a string. e.g., "Chronomites: small, insectoid creatures that can locally distort time.", "Grief-fiends: ethereal beings that feed on sorrow."
-- 'magicSystemOverview': Briefly describe the nature of magic in this world. This should be a string. e.g., "Magic is a wild, untamed force drawn from the raw elements, accessible only to those with innate talent or through dangerous pacts."
-- 'briefHistoryHook': A short, intriguing piece of history or lore relevant to the adventure. This should be a string. e.g., "The land is still scarred by the 'War of Whispers' a century ago, where forbidden knowledge almost unmade reality."
-- 'culturalNormsOrTaboos' (array of strings): List 1-2 significant cultural norms, traditions, or taboos. Each is a string. e.g., "Offering a shard of obsidian is a sign of respect.", "Speaking the name of the last Tyrant King is forbidden and believed to bring misfortune."
-
-Ensure all fields are filled with creative and relevant information.`;
-
   const payload = {
-    model: GENAI_MODEL_NAME,
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: WorldDetailsSchema
-    }
+    adventureOutline,
+    persona,
+    genre
   };
 
   try {
-    const response = await fetchWithTimeout(`/api/generate-content`, {
+    const response = await fetchWithTimeout(`/api/adventure/world-details`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -544,40 +517,13 @@ export const fetchStorySegment = async (
   fullPrompt: string,
   isInitialScene: boolean = false
 ): Promise<StorySegment> => {
-  const augmentedPrompt = `${fullPrompt}
-
-General Content Instructions for Story Segment:
-- For the 'sceneDescription' field:
-    - ${
-      isInitialScene
-        ? 'For this initial scene, or if the player is entering a new major location/area, ensure the sceneDescription is immersive and establishes the setting and atmosphere effectively (approx. 3-5 sentences).'
-        : "For subsequent scenes, the sceneDescription should be vivid yet concise (approx. 2-4 sentences). If the player's choice outcome (detailed in the prompt above) implies travel, a simple or mundane action, or is primarily transitional, aim for focused brevity (approx. 1-3 sentences), highlighting only essential changes, observations, or the direct result of the action."
-    }
-    - If the player's choice outcome (detailed in the prompt above) implies combat, a chase, or any other fast-paced action sequence, prioritize dynamic action verbs and immediate sensory details in the sceneDescription. Keep it punchy, engaging, and focused on the action, rather than lengthy atmospheric descriptions.
-    - Narrative Style: Employ varied sentence structures; mix short, punchy sentences with longer, more descriptive ones to create a dynamic and engaging narrative flow. Avoid repetitive sentence beginnings.
-    - Paragraphing: The "sceneDescription" content should be 2 or 3 short paragraphs. Each paragraph should naturally flow into the next. Ensure paragraphs are separated by a double newline character (\\n\\n) in the final JSON string for this field.
-- For the 'choices' array (if 'isUserInputCommandOnly' is false): Provide 3 distinct choices. Each choice object requires:
-    - 'text': Player-facing choice text.
-    - 'outcomePrompt': AI instruction for the next scene if this choice is picked. This prompt should imply the nature of the consequence (positive, negative, neutral) which the AI will then narrate in the next scene's description.
-    - 'signalsStageCompletion' (boolean): True if this choice DIRECTLY completes the current stage objective.
-    - 'leadsToFailure' (boolean): True if this choice leads to definitive game failure.
-- For 'isUserInputCommandOnly' (boolean): There is a small chance (around 10-15%, slightly less for the very first scene unless context demands it) that the situation calls for the player's direct input. In such cases, set this to true, and the 'choices' array MUST be empty. The 'sceneDescription' should naturally lead to the player needing to decide what to do.
-- For 'isFailureScene' (boolean): Set to true ONLY if this scene itself IS the game failure narration (e.g., after a choice with 'leadsToFailure: true' was picked). If true, 'choices' should be empty, and 'imagePrompt' can be a somber final image.
-- For 'isFinalScene' (boolean): Set to true ONLY if this scene represents the SUCCESSFUL conclusion of the ENTIRE adventure.
-- For 'itemFound' (object, optional): If an item is found, provide its 'name' and 'description'. Omit this field if no item is found.
-- For 'imagePrompt' (string): Provide a descriptive prompt for image generation relevant to the scene.`;
-
   const payload = {
-    model: GENAI_MODEL_NAME,
-    contents: augmentedPrompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: StorySegmentSchema
-    }
+    fullPrompt,
+    isInitialScene
   };
 
   try {
-    const response = await fetchWithTimeout(`/api/generate-content`, {
+    const response = await fetchWithTimeout(`/api/adventure/story-segment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -670,7 +616,7 @@ General Content Instructions for Story Segment:
   }
 };
 
-export const fetchCustomActionOutcome = async (
+export const evaluateCustomActionFeasibility = async (
   userInputText: string,
   currentSegment: StorySegment,
   adventureOutline: AdventureOutline,
@@ -679,89 +625,107 @@ export const fetchCustomActionOutcome = async (
   selectedPersona: Persona,
   inventory: InventoryItem[],
   currentStageIndex: number
-): Promise<StorySegment> => {
-  const genreSpecificPersonaTitle =
-    genrePersonaDetails[selectedGenre]?.[selectedPersona]?.title ||
-    selectedPersona;
-  const personaContext = `The player is a ${genreSpecificPersonaTitle} (base persona: ${selectedPersona}).`;
-  const inventoryContext =
-    inventory.length > 0
-      ? `The player possesses: ${inventory.map((item) => `'${item.name}' (described as: ${item.description})`).join(', ')}.`
-      : 'The player possesses no items yet.';
-  const currentStage = adventureOutline.stages[currentStageIndex];
-  const worldContext = `
-World Context for Story Generation:
-World Name: "${worldDetails.worldName}" (Genre Clarification: ${worldDetails.genreClarification})
-Key Environmental Features: ${worldDetails.keyEnvironmentalFeatures.join('; ') || 'N/A'}
-Dominant Societies/Factions: ${worldDetails.dominantSocietiesOrFactions.join('; ') || 'N/A'}
-Unique Creatures/Monsters: ${worldDetails.uniqueCreaturesOrMonsters.join('; ') || 'N/A'}
-Magic System: ${worldDetails.magicSystemOverview}
-Brief History Hook: ${worldDetails.briefHistoryHook}
-Cultural Norms/Taboos: ${worldDetails.culturalNormsOrTaboos.join('; ') || 'N/A'}
-This world information MUST deeply influence the scene description, the types of challenges, the choices available, and any items found.
-`;
-  const prompt = `You are a master storyteller for a dynamic text-based RPG adventure game.
-Adventure Genre: ${selectedGenre}.
-${personaContext}
-Player's Current Inventory: ${inventoryContext}
-${worldContext}
-The overall adventure is titled: "${adventureOutline.title}".
-The player's ultimate goal is: "${adventureOutline.overallGoal}".
-Current Stage ${currentStageIndex + 1}: "${currentStage.title}" (Objective: "${currentStage.objective}").
-Previous Scene Description was: "${currentSegment.sceneDescription}"
-Player's custom action: "${userInputText}"
-
-Your task is to evaluate the player's custom action and generate the resulting story segment.
-
-1.  Evaluation and Narrative Considerations for content:
-    *   Is the action "${userInputText}" plausible, safe, and sensible given the current scene, world details, player's persona (${genreSpecificPersonaTitle}), and the ${selectedGenre} genre?
-    *   Consider if it aligns with or contradicts cultural norms/taboos or the magic system of "${worldDetails.worldName}".
-    *   Does it directly contribute to the current stage objective ("${currentStage.objective}") or the overall goal ("${adventureOutline.overallGoal}")? Or does it lead to significant danger or failure?
-    *   **Inventory Interaction (Crucial):** When evaluating the player's action ("${userInputText}"), actively consider if any items in their inventory (listed in "Player's Current Inventory" above) could logically assist, hinder, or alter the outcome.
-        *   If an item is relevant, the 'sceneDescription' content MUST narrate how the item is used or its effect. For example, if the player has 'Rope' and tries to 'climb the treacherous cliff', the narrative should explicitly mention the rope being used.
-        *   The narrative should reflect the item's contribution naturally.
-        *   If the player attempts an action that an item in their inventory would clearly make trivial or very easy, reflect this in the outcome. Conversely, if they lack a crucial item for an action, this might lead to failure or a more challenging outcome.
-
-2.  Content Generation guidance (schema will handle structure):
-    *   For 'sceneDescription': Narrate the outcome (2-3 short paragraphs, varied sentences, paragraphs separated by \\n\\n in the string), clearly describing any relevant inventory item usage.
-        *   If action is IMPOSSIBLE/NONSENSICAL (or if user input is inappropriate and you're narrating a gentle refusal): The 'sceneDescription' should narrate the attempt and why it's not feasible/appropriate. Describe a *minor consequence* or the character's reaction. The scene must reflect this minor change; it should NOT be an exact reversion to the previous state.
-    *   For 'choices' / 'isUserInputCommandOnly':
-        *   If 'isUserInputCommandOnly' is false: Provide 3 new distinct choice OBJECTS relevant to the new situation.
-        *   If 'isUserInputCommandOnly' is true: 'choices' array must be empty.
-        *   For impossible/nonsensical actions: New choices should allow the player to move on from the failed attempt. Do NOT simply repeat the previous scene's choices.
-    *   For 'imagePrompt': New image prompt matching the new scene, considering item usage.
-    *   For 'isFinalScene': True if successful adventure completion.
-    *   For 'isFailureScene': True if this action leads to game failure.
-    *   For 'itemFound': Award an item if logical (provide 'name' and 'description').
-
-Sanitize user input: Do not directly reflect harmful, offensive, or role-play-breaking user input. If user input is inappropriate, follow the "IMPOSSIBLE/NONSENSICAL" pathway: make the 'sceneDescription' a gentle refusal and generate a new state with new choices or user input mode.`;
-
+): Promise<GeminiActionFeasibilityResponse> => {
   const payload = {
-    model: GENAI_MODEL_NAME,
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: StorySegmentSchema,
-      thinkingConfig: { thinkingBudget: 0 }
-    }
+    userInputText,
+    currentSegment,
+    adventureOutline,
+    worldDetails,
+    selectedGenre,
+    selectedPersona,
+    inventory,
+    currentStageIndex
   };
 
   try {
-    const response = await fetchWithTimeout(`/api/generate-content`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    const response = await fetchWithTimeout(
+      `/api/adventure/custom-action/evaluation`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }
+    );
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
-        error: `Proxy request for custom action failed: ${response.status} ${response.statusText}`
+        error: `Proxy request for action feasibility failed: ${response.status} ${response.statusText}`
       }));
       throw errorData;
     }
     const responseData = await response.json();
     if (!responseData.text)
       throw new JsonParseError(
-        "Proxy response for custom action missing 'text' field.",
+        "Proxy response for action feasibility missing 'text' field.",
+        JSON.stringify(responseData)
+      );
+    const feasibilityData = parseJsonFromText<GeminiActionFeasibilityResponse>(
+      responseData.text
+    );
+
+    if (
+      typeof feasibilityData.isPossible !== 'boolean' ||
+      typeof feasibilityData.reason !== 'string'
+    ) {
+      console.error(
+        'Invalid action feasibility structure received:',
+        feasibilityData
+      );
+      throw new Error(
+        'Received incomplete or malformed action feasibility data.'
+      );
+    }
+    return feasibilityData;
+  } catch (error) {
+    throw handleServiceError(error, 'evaluateCustomActionFeasibility');
+  }
+};
+
+export const fetchCustomActionOutcome = async (
+  userInputText: string,
+  currentSegment: StorySegment,
+  adventureOutline: AdventureOutline,
+  worldDetails: WorldDetails,
+  selectedGenre: keyof GenreSpecificPersonaDetails,
+  selectedPersona: Persona,
+  inventory: InventoryItem[],
+  currentStageIndex: number,
+  feasibilityContext: {
+    wasImpossible: boolean;
+    reasonForImpossibility?: string;
+    suggestionIfPossible?: string;
+  }
+): Promise<StorySegment> => {
+  const payload = {
+    userInputText,
+    currentSegment,
+    adventureOutline,
+    worldDetails,
+    selectedGenre,
+    selectedPersona,
+    inventory,
+    currentStageIndex,
+    feasibilityContext
+  };
+
+  try {
+    const response = await fetchWithTimeout(
+      `/api/adventure/custom-action/outcome`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }
+    );
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        error: `Proxy request for custom action outcome failed: ${response.status} ${response.statusText}`
+      }));
+      throw errorData;
+    }
+    const responseData = await response.json();
+    if (!responseData.text)
+      throw new JsonParseError(
+        "Proxy response for custom action outcome missing 'text' field.",
         JSON.stringify(responseData)
       );
     const storyData = parseJsonFromText<GeminiStoryResponse>(responseData.text);
@@ -780,7 +744,7 @@ Sanitize user input: Do not directly reflect harmful, offensive, or role-play-br
         storyData
       );
       throw new Error(
-        'Received incomplete or malformed story data for custom action.'
+        'Received incomplete or malformed story data for custom action outcome.'
       );
     }
     if (
@@ -788,11 +752,11 @@ Sanitize user input: Do not directly reflect harmful, offensive, or role-play-br
       storyData.choices.length !== 0
     ) {
       console.error(
-        'Inconsistency (custom action): isUserInputCommandOnly is true but choices array is not empty:',
+        'Inconsistency (custom action outcome): isUserInputCommandOnly is true but choices array is not empty:',
         storyData
       );
       throw new Error(
-        'AI returned isUserInputCommandOnly=true but provided choices for custom action.'
+        'AI returned isUserInputCommandOnly=true but provided choices for custom action outcome.'
       );
     }
     if (storyData.choices) {
@@ -805,10 +769,12 @@ Sanitize user input: Do not directly reflect harmful, offensive, or role-play-br
           typeof choice.leadsToFailure !== 'boolean'
         ) {
           console.error(
-            `Malformed choice at index ${index} in custom action response:`,
+            `Malformed choice at index ${index} in custom action outcome response:`,
             choice
           );
-          throw new Error(`Choice ${index + 1} (custom action) is malformed.`);
+          throw new Error(
+            `Choice ${index + 1} (custom action outcome) is malformed.`
+          );
         }
       });
     }
@@ -846,29 +812,13 @@ export const attemptToFixJson = async (
   faultyJsonText: string,
   originalPromptContext: string
 ): Promise<StorySegment> => {
-  const fixPrompt = `The following JSON response was received but is malformed:
-\`\`\`json
-${faultyJsonText}
-\`\`\`
-
-This response was for a request related to generating a story segment. The original request's core instructions were to produce a JSON object with keys: "sceneDescription" (string, formatted into 2-3 short paragraphs with varied sentence structure, paragraphs separated by \\n\\n), "choices" (array of objects, each object with "text" (string), "outcomePrompt" (string), "signalsStageCompletion" (boolean), and "leadsToFailure" (boolean)), "imagePrompt" (string), "isFinalScene" (boolean), "isFailureScene" (boolean), "isUserInputCommandOnly" (boolean), and optionally "itemFound" (an object with "name" (string) and "description" (string)).
-If "isUserInputCommandOnly" is true, "choices" array must be empty.
-The context of the original prompt included aspects like:
-"${originalPromptContext.substring(0, 500)}..."
-
-Please analyze the faulty JSON, correct its structure, and provide ONLY the valid JSON object for the story segment. Ensure all required fields are present and correctly typed according to the structure described, especially the "sceneDescription" formatting and the structure of objects within the "choices" array. Do not include any explanatory text, only the corrected JSON object.`;
-
   const payload = {
-    model: GENAI_MODEL_NAME,
-    contents: fixPrompt,
-    config: {
-      responseMimeType: 'application/json'
-      // No responseSchema here as the AI is fixing text to match a described schema, not generating from scratch.
-    }
+    faultyJsonText,
+    originalPromptContext
   };
 
   try {
-    const response = await fetchWithTimeout(`/api/generate-content`, {
+    const response = await fetchWithTimeout(`/api/json-tools/fix`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -969,57 +919,26 @@ export const fetchSceneExamination = async (
   persona: Persona,
   inventory: InventoryItem[]
 ): Promise<GeminiExaminationResponse> => {
-  const genreSpecificPersonaTitle =
-    genrePersonaDetails[adventureGenre]?.[persona]?.title || persona;
-  const personaContext = `The player examining is a ${genreSpecificPersonaTitle} (base archetype: ${persona}).`;
-  const inventoryContext =
-    inventory.length > 0
-      ? `They possess: ${inventory.map((item) => item.name).join(', ')}.`
-      : 'They possess no items.';
-  const worldContext = `
-World Context:
-World Name: "${worldDetails.worldName}" (${worldDetails.genreClarification})
-Key Environment: ${worldDetails.keyEnvironmentalFeatures.join(', ') || 'N/A'}
-Societies: ${worldDetails.dominantSocietiesOrFactions.join(', ') || 'N/A'}
-Creatures: ${worldDetails.uniqueCreaturesOrMonsters.join(', ') || 'N/A'}
-Magic: ${worldDetails.magicSystemOverview}
-History Hook: ${worldDetails.briefHistoryHook}
-Culture: ${worldDetails.culturalNormsOrTaboos.join(', ') || 'N/A'}
-This world information should influence the details revealed.`;
-  const prompt = `You are a master storyteller. The player wants to examine their current surroundings more closely.
-Adventure Title: "${adventureOutline.title}"
-Overall Goal: "${adventureOutline.overallGoal}"
-Current Stage: "${currentStageTitle}" (Objective: "${currentStageObjective}")
-${personaContext}
-${inventoryContext}
-${worldContext}
-
-Current Scene Description (what the player already sees):
-"${currentSceneDescription}"
-
-Based on this, provide content for the 'examinationText' field. This text should:
-- Elaborate on details already mentioned or hint at things not immediately obvious, drawing from the established World Context.
-- Reveal subtle clues, interesting lore, or atmospheric details that are consistent with the world's features, history, or magic.
-- Consider the player's persona (${genreSpecificPersonaTitle}) and items they possess for any specific insights they might gain, filtered through their understanding of this world.
-- DO NOT advance the plot or introduce new choices. This is for observation only.
-- Maintain the ${adventureGenre} tone, enriched by the world's specific genre clarification.
-- Be 2-4 sentences long and concise. Employ varied sentence structures.`;
-
   const payload = {
-    model: GENAI_MODEL_NAME,
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: ExaminationSchema
-    }
+    currentSceneDescription,
+    adventureGenre,
+    adventureOutline,
+    worldDetails,
+    currentStageTitle,
+    currentStageObjective,
+    persona,
+    inventory
   };
 
   try {
-    const response = await fetchWithTimeout(`/api/generate-content`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    const response = await fetchWithTimeout(
+      `/api/adventure/scene-examination`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }
+    );
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({
         error: `Proxy request for examination failed: ${response.status} ${response.statusText}`

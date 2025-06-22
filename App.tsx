@@ -10,6 +10,7 @@ import ResumeModal from './components/ResumeModal';
 import StoryDisplay from './components/StoryDisplay';
 import {
   attemptToFixJson,
+  evaluateCustomActionFeasibility,
   fetchAdventureOutline,
   fetchCustomActionOutcome,
   fetchSceneExamination,
@@ -27,7 +28,8 @@ import {
   JsonParseError,
   Persona,
   SavableGameState,
-  StorySegment
+  StorySegment,
+  GeminiActionFeasibilityResponse
 } from './types';
 
 const LOCAL_STORAGE_KEY = 'forgeYourJourney_v1';
@@ -73,10 +75,17 @@ const fixJsonLoadingTexts = [
   'The AI is re-evaluating its response within the established world...',
   "Working to fix the narrative flow, aligned with the world's lore..."
 ];
-const customActionLoadingTexts = [
+const customActionEvaluationLoadingTexts = [
+  'Contemplating the threads of your action...',
+  'The world holds its breath, evaluating your intent...',
+  'Checking the cosmic rulebook for your move...',
+  'Assessing the plausibility of your design...'
+];
+const customActionOutcomeLoadingTexts = [
+  // Renamed from customActionLoadingTexts for clarity
   'The threads of fate respond to your will...',
-  'Evaluating your custom action...',
-  'The world considers your input...'
+  'Bringing your action to life...',
+  'The world considers your input and reacts...'
 ];
 
 const getRandomLoadingText = (textArray: string[]) =>
@@ -95,8 +104,7 @@ const App: React.FC = () => {
     isLoadingStory: false,
     isLoadingImage: false,
     error: null,
-    // apiKeyMissing: typeof process.env.API_KEY !== 'string' || process.env.API_KEY === '', // REMOVED
-    apiKeyMissing: false, // API Key is now server-side, client doesn't check it directly.
+    apiKeyMissing: false,
     isGameEnded: false,
     isGameFailed: false,
     journal: [],
@@ -147,9 +155,6 @@ const App: React.FC = () => {
   );
 
   useEffect(() => {
-    // API Key check removed from here, as it's handled by proxy.
-    // If proxy fails due to key, an error will be set through normal API call flow.
-
     const savedGameJson = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (savedGameJson) {
       try {
@@ -193,7 +198,7 @@ const App: React.FC = () => {
       setIsSelectingGenre(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Removed gameState.apiKeyMissing from dependencies
+  }, []);
 
   const handleGenreSelected = (genre: GameGenre) => {
     addJournalEntry('genre_selected', `Selected genre: ${genre}.`);
@@ -248,7 +253,6 @@ const App: React.FC = () => {
       !gameState.adventureOutline &&
       !gameState.apiKeyMissing
     ) {
-      // apiKeyMissing check can stay as a general guard
       const loadNewOutline = async () => {
         setGameState((prev) => ({
           ...prev,
@@ -307,7 +311,7 @@ const App: React.FC = () => {
     gameState.selectedPersona,
     gameState.apiKeyMissing,
     addJournalEntry
-  ]); // apiKeyMissing still here as a general check for app readiness, not direct key use.
+  ]);
 
   useEffect(() => {
     if (
@@ -481,15 +485,18 @@ const App: React.FC = () => {
     async (
       prompt: string,
       isRetryAttempt: boolean = false,
-      forCustomAction: boolean = false
+      forCustomActionOutcome: boolean = false
     ) => {
       const shouldAttemptImageLoadInitial =
         imageGenerationFeatureEnabled &&
         !gameState.imageGenerationPermanentlyDisabled;
       if (!isRetryAttempt && !gameState.isLoadingStory) {
+        // Only set loading text if not already loading (e.g. from custom action evaluation)
         setCurrentLoadingText(
           getRandomLoadingText(
-            forCustomAction ? customActionLoadingTexts : storyLoadingTexts
+            forCustomActionOutcome
+              ? customActionOutcomeLoadingTexts
+              : storyLoadingTexts
           )
         );
         setGameState((prev) => ({
@@ -506,14 +513,14 @@ const App: React.FC = () => {
         gameState.lastRetryInfo.originalPrompt !== 'fetch_outline_action' &&
         gameState.lastRetryInfo.originalPrompt !== 'fetch_world_action' &&
         gameState.lastRetryInfo.originalPrompt !== 'examine_action' &&
-        gameState.lastRetryInfo.originalPrompt !== 'generate_image_action'
+        gameState.lastRetryInfo.originalPrompt !== 'generate_image_action' &&
+        !gameState.lastRetryInfo.customActionText
       ) {
+        // Only set storyLoadingTexts if not a custom action retry
         setCurrentLoadingText(getRandomLoadingText(storyLoadingTexts));
       }
 
       try {
-        // The prompt here is already the full, context-rich prompt for Gemini.
-        // fetchStorySegment now sends this to the proxy.
         const segmentData = await fetchStorySegment(
           prompt,
           !gameState.currentSegment
@@ -522,9 +529,17 @@ const App: React.FC = () => {
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : 'An unknown error occurred.';
-        const retryPrompt = gameState.lastRetryInfo?.customActionText
-          ? gameState.lastRetryInfo.originalPrompt
-          : prompt;
+        // Use originalPrompt from lastRetryInfo if it's a retry of a non-custom action, otherwise use the current prompt
+        const retryPrompt =
+          isRetryAttempt &&
+          gameState.lastRetryInfo &&
+          !gameState.lastRetryInfo.customActionText
+            ? gameState.lastRetryInfo.originalPrompt
+            : prompt;
+        const customActionForRetry =
+          isRetryAttempt && gameState.lastRetryInfo
+            ? gameState.lastRetryInfo.customActionText
+            : undefined;
 
         if (err instanceof JsonParseError) {
           setGameState((prev) => ({
@@ -536,9 +551,7 @@ const App: React.FC = () => {
               type: 'fix_json',
               originalPrompt: retryPrompt,
               faultyJsonText: err.rawText,
-              customActionText: forCustomAction
-                ? gameState.lastRetryInfo?.customActionText
-                : undefined
+              customActionText: customActionForRetry
             }
           }));
         } else {
@@ -550,9 +563,7 @@ const App: React.FC = () => {
             lastRetryInfo: {
               type: 'resend_original',
               originalPrompt: retryPrompt,
-              customActionText: forCustomAction
-                ? gameState.lastRetryInfo?.customActionText
-                : undefined
+              customActionText: customActionForRetry
             }
           }));
         }
@@ -653,7 +664,6 @@ Generate the opening story segment.`;
   ]);
 
   useEffect(() => {
-    // apiKeyMissing check removed
     if (
       showResumeModal ||
       gameState.isLoadingOutline ||
@@ -711,7 +721,7 @@ Generate the opening story segment.`;
     isSelectingGenre,
     isSelectingPersona,
     isLoadingExamination
-  ]); // apiKeyMissing removed
+  ]);
 
   const handleChoiceSelected = async (choice: Choice) => {
     if (
@@ -822,54 +832,112 @@ The sceneDescription should narrate the consequences (positive or negative) of t
     )
       return;
 
-    setCurrentLoadingText(getRandomLoadingText(customActionLoadingTexts));
+    setCurrentLoadingText(
+      getRandomLoadingText(customActionEvaluationLoadingTexts)
+    );
     setGameState((prev) => ({
       ...prev,
-      isLoadingStory: true,
+      isLoadingStory: true, // This flag will now cover both evaluation and outcome generation
       isLoadingImage: false,
       error: null,
       lastRetryInfo: {
+        // Store context for potential retry of the whole custom action
         type: 'resend_original',
-        originalPrompt: 'custom_action_placeholder',
+        originalPrompt: 'custom_action_evaluation', // Special marker for retry logic
         customActionText: actionText
       }
     }));
     addJournalEntry('custom_action', actionText);
 
     try {
-      const newSegment = await fetchCustomActionOutcome(
-        actionText,
-        gameState.currentSegment,
-        gameState.adventureOutline,
-        gameState.worldDetails,
-        gameState.selectedGenre,
-        gameState.selectedPersona,
-        gameState.inventory,
-        gameState.currentStageIndex
+      // Step 1: Evaluate Feasibility
+      const feasibility: GeminiActionFeasibilityResponse =
+        await evaluateCustomActionFeasibility(
+          actionText,
+          gameState.currentSegment,
+          gameState.adventureOutline,
+          gameState.worldDetails,
+          gameState.selectedGenre,
+          gameState.selectedPersona,
+          gameState.inventory,
+          gameState.currentStageIndex
+        );
+      addJournalEntry(
+        'action_evaluation',
+        `Feasibility: ${feasibility.isPossible ? 'Possible' : 'Not Possible'}. Reason: ${feasibility.reason}`
       );
-      if (
-        newSegment.sceneDescription.includes(
-          'The situation remains largely unchanged'
-        ) ||
-        newSegment.sceneDescription.includes('decide against it')
-      ) {
-        addJournalEntry('action_impossible', newSegment.sceneDescription);
+
+      // Update loading text for outcome generation
+      setCurrentLoadingText(
+        getRandomLoadingText(customActionOutcomeLoadingTexts)
+      );
+      // Update lastRetryInfo to signify that evaluation passed, and we're onto outcome generation
+      // This helps if we want more granular retry later, for now, retry starts over.
+      setGameState((prev) => ({
+        ...prev,
+        lastRetryInfo: {
+          type: 'resend_original',
+          originalPrompt: 'custom_action_outcome_generation', // Marker for outcome phase
+          customActionText: actionText
+        }
+      }));
+
+      // Step 2: Generate Outcome based on Feasibility
+      let newSegment: StorySegment;
+      if (!feasibility.isPossible) {
+        addJournalEntry('action_impossible', feasibility.reason);
+        newSegment = await fetchCustomActionOutcome(
+          actionText,
+          gameState.currentSegment,
+          gameState.adventureOutline,
+          gameState.worldDetails,
+          gameState.selectedGenre,
+          gameState.selectedPersona,
+          gameState.inventory,
+          gameState.currentStageIndex,
+          { wasImpossible: true, reasonForImpossibility: feasibility.reason }
+        );
+      } else {
+        newSegment = await fetchCustomActionOutcome(
+          actionText,
+          gameState.currentSegment,
+          gameState.adventureOutline,
+          gameState.worldDetails,
+          gameState.selectedGenre,
+          gameState.selectedPersona,
+          gameState.inventory,
+          gameState.currentStageIndex,
+          {
+            wasImpossible: false,
+            suggestionIfPossible: feasibility.suggestedOutcomeSummaryIfPossible
+          }
+        );
       }
+
       await processSuccessfulSegment(newSegment);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : 'An unknown error occurred.';
-      const contextForRetry = `Custom action: ${actionText} in scene: ${gameState.currentSegment.sceneDescription.substring(0, 100)}...`;
+      // lastRetryInfo should already be set to allow retrying the current phase (evaluation or outcome)
+      // or the whole action if simplified retry is used.
+      const currentPhasePrompt =
+        gameState.lastRetryInfo?.originalPrompt === 'custom_action_evaluation'
+          ? 'evaluating custom action'
+          : 'generating custom action outcome';
+      const errorContext = `Failed while ${currentPhasePrompt}: ${errorMessage}`;
 
       if (err instanceof JsonParseError) {
         setGameState((prev) => ({
           ...prev,
           isLoadingStory: false,
           isLoadingImage: false,
-          error: `Failed to parse outcome of custom action: ${errorMessage} Click Retry.`,
+          error: `Failed to parse data for custom action: ${errorMessage} Click Retry.`,
+          // Keep lastRetryInfo as it was when the error occurred for this specific phase
           lastRetryInfo: {
             type: 'fix_json',
-            originalPrompt: contextForRetry,
+            originalPrompt:
+              gameState.lastRetryInfo?.originalPrompt ||
+              `custom_action_in_scene: ${gameState.currentSegment!.sceneDescription.substring(0, 50)}...`, // fallback original prompt
             faultyJsonText: err.rawText,
             customActionText: actionText
           }
@@ -879,10 +947,13 @@ The sceneDescription should narrate the consequences (positive or negative) of t
           ...prev,
           isLoadingStory: false,
           isLoadingImage: false,
-          error: `Failed to process custom action: ${errorMessage}`,
+          error: errorContext,
+          // Keep lastRetryInfo for resend_original of the current custom action step
           lastRetryInfo: {
             type: 'resend_original',
-            originalPrompt: contextForRetry,
+            originalPrompt:
+              gameState.lastRetryInfo?.originalPrompt ||
+              'custom_action_evaluation', // Default to retry evaluation if somehow unset
             customActionText: actionText
           }
         }));
@@ -970,7 +1041,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
         lastRetryInfo: null,
         imageGenerationPermanentlyDisabled:
           initialLoadedState.imageGenerationPermanentlyDisabled,
-        apiKeyMissing: false // Reset this as well
+        apiKeyMissing: false
       }));
 
       setImageGenerationFeatureEnabled(
@@ -1068,7 +1139,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
       isLoadingStory: false,
       isLoadingImage: false,
       error: null,
-      apiKeyMissing: false, // Key is server-side
+      apiKeyMissing: false,
       isGameEnded: false,
       isGameFailed: false,
       journal: [],
@@ -1098,28 +1169,37 @@ The sceneDescription should narrate the consequences (positive or negative) of t
     const { type, originalPrompt, faultyJsonText, customActionText } =
       gameState.lastRetryInfo;
 
+    // Set loading states based on what's being retried
+    const isRetryingOutline = originalPrompt === 'fetch_outline_action';
+    const isRetryingWorld = originalPrompt === 'fetch_world_action';
+    const isRetryingExamine = originalPrompt === 'examine_action';
+    const isRetryingImage = originalPrompt === 'generate_image_action';
+    const isRetryingCustomAction =
+      originalPrompt === 'custom_action_evaluation' ||
+      originalPrompt === 'custom_action_outcome_generation' ||
+      !!customActionText;
+    const isRetryingFixJson = type === 'fix_json';
+
     setGameState((prev) => ({
       ...prev,
       error: null,
-      isLoadingOutline: originalPrompt === 'fetch_outline_action',
-      isLoadingWorld: originalPrompt === 'fetch_world_action',
+      isLoadingOutline: isRetryingOutline,
+      isLoadingWorld: isRetryingWorld,
       isLoadingStory:
-        type === 'fix_json' ||
-        (originalPrompt !== 'fetch_outline_action' &&
-          originalPrompt !== 'fetch_world_action' &&
-          originalPrompt !== 'examine_action' &&
-          originalPrompt !== 'generate_image_action'),
-      isLoadingImage: false
+        !isRetryingOutline &&
+        !isRetryingWorld &&
+        !isRetryingExamine &&
+        !isRetryingImage, // Covers story, custom actions, fix_json for story
+      isLoadingImage: isRetryingImage
     }));
 
     if (type === 'fix_json' && faultyJsonText) {
       setCurrentLoadingText(getRandomLoadingText(fixJsonLoadingTexts));
       try {
-        // attemptToFixJson now sends the request to the proxy.
         const fixedSegmentData = await attemptToFixJson(
           faultyJsonText,
           originalPrompt
-        );
+        ); // originalPrompt here is context for the fix
         await processSuccessfulSegment(fixedSegmentData);
       } catch (fixError) {
         const fixErrorMessage =
@@ -1139,7 +1219,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
         }));
       }
     } else if (type === 'resend_original') {
-      if (originalPrompt === 'fetch_outline_action') {
+      if (isRetryingOutline) {
         setCurrentLoadingText(getRandomLoadingText(outlineLoadingTexts));
         setGameState((prev) => ({
           ...prev,
@@ -1147,33 +1227,43 @@ The sceneDescription should narrate the consequences (positive or negative) of t
           worldDetails: null,
           currentSegment: null
         }));
-        handlePersonaSelected(gameState.selectedPersona!);
-      } else if (originalPrompt === 'fetch_world_action') {
+        // Re-trigger outline generation by effectively re-selecting persona.
+        // This relies on the useEffect for isLoadingOutline.
+        setGameState((prev) => ({
+          ...prev,
+          isLoadingOutline: true,
+          selectedPersona: prev.selectedPersona
+        }));
+      } else if (isRetryingWorld) {
         setCurrentLoadingText(getRandomLoadingText(worldLoadingTexts));
         setGameState((prev) => ({
           ...prev,
           worldDetails: null,
           currentSegment: null
         }));
-      } else if (originalPrompt === 'examine_action') {
+        // Re-trigger world detail generation. Relies on useEffect for isLoadingWorld.
+        setGameState((prev) => ({
+          ...prev,
+          isLoadingWorld: true,
+          adventureOutline: prev.adventureOutline
+        }));
+      } else if (isRetryingExamine) {
         setCurrentLoadingText(getRandomLoadingText(examinationLoadingTexts));
         await handleExamineSelected();
-      } else if (originalPrompt === 'generate_image_action') {
-        console.warn(
-          'handleRetry called for generate_image_action, delegating to handleReloadImageAttempt.'
-        );
+      } else if (isRetryingImage) {
         await handleReloadImageAttempt();
-      } else if (
-        customActionText &&
-        gameState.currentSegment &&
-        gameState.adventureOutline &&
-        gameState.worldDetails &&
-        gameState.selectedGenre &&
-        gameState.selectedPersona
-      ) {
-        setCurrentLoadingText(getRandomLoadingText(customActionLoadingTexts));
+      } else if (isRetryingCustomAction && customActionText) {
+        // For custom actions, retry means calling handleCustomActionSubmit again.
+        // The internal state of handleCustomActionSubmit (evaluation or outcome)
+        // will be determined by its logic and the 'originalPrompt' in lastRetryInfo.
+        setCurrentLoadingText(
+          originalPrompt === 'custom_action_evaluation'
+            ? getRandomLoadingText(customActionEvaluationLoadingTexts)
+            : getRandomLoadingText(customActionOutcomeLoadingTexts)
+        );
         await handleCustomActionSubmit(customActionText);
       } else {
+        // Generic story scene retry
         setCurrentLoadingText(getRandomLoadingText(storyLoadingTexts));
         await loadStoryScene(originalPrompt, true);
       }
@@ -1255,10 +1345,6 @@ The sceneDescription should narrate the consequences (positive or negative) of t
       }
     }
   };
-
-  // Removed the direct API Key Missing error display. Errors from proxy (e.g. if proxy's key is bad)
-  // will be shown in the generic error modal.
-  // if (gameState.apiKeyMissing && gameState.error) { ... } // REMOVED BLOCK
 
   if (showResumeModal && initialLoadedState) {
     return (
@@ -1402,51 +1488,77 @@ The sceneDescription should narrate the consequences (positive or negative) of t
       imageGenerationFeatureEnabled &&
       !gameState.imageGenerationPermanentlyDisabled) ||
     isLoadingExamination;
+
+  // Update dynamicLoadingText based on the current phase of loading
   let dynamicLoadingText = currentLoadingText;
   if (
     gameState.isLoadingOutline &&
     (!dynamicLoadingText || !outlineLoadingTexts.includes(dynamicLoadingText))
-  )
+  ) {
     dynamicLoadingText = getRandomLoadingText(outlineLoadingTexts);
-  else if (
+  } else if (
     gameState.isLoadingWorld &&
     (!dynamicLoadingText || !worldLoadingTexts.includes(dynamicLoadingText))
-  )
-    dynamicLoadingText = getRandomLoadingText(worldLoadingTexts);
-  else if (
-    gameState.isLoadingStory &&
-    (!dynamicLoadingText ||
-      (!storyLoadingTexts.includes(dynamicLoadingText) &&
-        !customActionLoadingTexts.includes(dynamicLoadingText)))
   ) {
-    dynamicLoadingText =
-      gameState.lastRetryInfo?.customActionText &&
-      !gameState.lastRetryInfo.faultyJsonText
-        ? getRandomLoadingText(customActionLoadingTexts)
-        : getRandomLoadingText(storyLoadingTexts);
+    dynamicLoadingText = getRandomLoadingText(worldLoadingTexts);
+  } else if (gameState.isLoadingStory) {
+    // Check if it's custom action evaluation or outcome generation based on lastRetryInfo or currentLoadingText
+    const isEvaluatingCustomAction =
+      gameState.lastRetryInfo?.originalPrompt === 'custom_action_evaluation' ||
+      customActionEvaluationLoadingTexts.includes(currentLoadingText);
+    const isGeneratingCustomActionOutcome =
+      gameState.lastRetryInfo?.originalPrompt ===
+        'custom_action_outcome_generation' ||
+      customActionOutcomeLoadingTexts.includes(currentLoadingText);
+
+    if (
+      isEvaluatingCustomAction &&
+      (!dynamicLoadingText ||
+        !customActionEvaluationLoadingTexts.includes(dynamicLoadingText))
+    ) {
+      dynamicLoadingText = getRandomLoadingText(
+        customActionEvaluationLoadingTexts
+      );
+    } else if (
+      isGeneratingCustomActionOutcome &&
+      (!dynamicLoadingText ||
+        !customActionOutcomeLoadingTexts.includes(dynamicLoadingText))
+    ) {
+      dynamicLoadingText = getRandomLoadingText(
+        customActionOutcomeLoadingTexts
+      );
+    } else if (
+      !isEvaluatingCustomAction &&
+      !isGeneratingCustomActionOutcome &&
+      (!dynamicLoadingText || !storyLoadingTexts.includes(dynamicLoadingText))
+    ) {
+      // Fallback to general story loading texts if not specifically a custom action phase
+      dynamicLoadingText = getRandomLoadingText(storyLoadingTexts);
+    }
   } else if (
     gameState.isLoadingImage &&
     imageGenerationFeatureEnabled &&
     !gameState.imageGenerationPermanentlyDisabled &&
     (!dynamicLoadingText || !imageLoadingTexts.includes(dynamicLoadingText))
-  )
+  ) {
     dynamicLoadingText = getRandomLoadingText(imageLoadingTexts);
-  else if (
+  } else if (
     isLoadingExamination &&
     (!dynamicLoadingText ||
       !examinationLoadingTexts.includes(dynamicLoadingText))
-  )
+  ) {
     dynamicLoadingText = getRandomLoadingText(examinationLoadingTexts);
+  }
 
   const choicePanelProps = {
     currentSegment: gameState.currentSegment,
-    isLoadingStory: gameState.isLoadingStory,
+    isLoadingStory: gameState.isLoadingStory, // This flag is true during both evaluation and outcome generation for custom actions
     isLoading: isLoading,
     isLoadingExamination: isLoadingExamination,
     handleChoiceSelected: handleChoiceSelected,
     handleExamineSelected: handleExamineSelected,
     handleCustomActionSubmit: handleCustomActionSubmit,
-    currentLoadingText: dynamicLoadingText || 'Loading...'
+    currentLoadingText: dynamicLoadingText || 'Loading...' // Pass the refined loading text
   };
 
   const isImageOnlyError =
@@ -1533,7 +1645,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
         </div>
       </header>
 
-      {gameState.error && ( // Generic error modal, no longer checking !gameState.apiKeyMissing
+      {gameState.error && (
         <div
           className="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
           role="dialog"
@@ -1569,7 +1681,7 @@ The sceneDescription should narrate the consequences (positive or negative) of t
               ) : gameState.lastRetryInfo &&
                 !gameState.error.includes(
                   'API Key configuration error on the server'
-                ) ? ( // Don't show retry for server API key issues
+                ) ? (
                 <button
                   onClick={handleRetry}
                   className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-semibold rounded-lg shadow-md transition-all duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-yellow-300 focus:ring-opacity-75 transform hover:scale-105 text-lg"
