@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", // Modern Node.js supports ES2022 features
+    "module": "Node16", // Or "ESNext" if you prefer
+    "moduleResolution": "Node16", // Or "NodeNext"
+    "esModuleInterop": true, // For compatibility with CommonJS imports
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "outDir": "dist", // Output to the server build directory
+    "rootDir": ".", // Look for source files from the current directory (project root)
+    "baseUrl": ".",
+    "paths": {
+      // You might need to alias modules that are resolved from root in server.ts
+      // e.g., if you have `import App from './src/App'` in server.ts (unlikely but possible)
+    }
+  },
+  "include": ["server.ts"], // Only include your server.ts file
+  "exclude": ["node_modules", "dist", "src"] // Exclude other project folders
+}
