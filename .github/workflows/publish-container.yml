@@ -15,6 +15,12 @@ on:
 
 jobs:
   push_to_ghcr:
+    strategy:
+      matrix:
+        platforms:
+          - linux/amd64
+          - linux/arm64
+
     name: Push Docker image to GitHub Container Registry
     runs-on: ubuntu-latest
     permissions:
@@ -55,7 +61,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/i386,linux/arm64,linux/arm/v7
+          platforms: ${{ matrix.platforms }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v2
